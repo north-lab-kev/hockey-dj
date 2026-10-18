@@ -1,0 +1,331 @@
+# Hockey DJ — Specification
+
+| | |
+|---|---|
+| **Version** | 0.1 |
+| **Last updated** | 2026-10-18 |
+| **Status** | Draft — Phase 1 (MVP) not started |
+| **Live URL** | https://north-lab-kev.github.io/hockey-dj/ |
+
+> This document is the single source of truth for the project's requirements and technical decisions.
+> Update it whenever a requirement or decision changes, bump the version, and add an entry to the [Changelog](#13-changelog).
+
+---
+
+## 1. Purpose
+
+Hockey DJ is a web app for playing music in a hockey arena during stoppages of play. At each stoppage, the operator taps one big button to start a song at its most energetic moment (e.g. the chorus). When play resumes, the operator taps the same button to stop it.
+
+- **Music source:** the operator's Spotify Premium account.
+- **Users:** single user. There are no user accounts in the app.
+- **Use:** personal, non-commercial use only.
+
+## 2. Non-functional requirements
+
+| ID | Requirement |
+|---|---|
+| NF-1 | Runs in any modern browser on Windows, Android, iOS/iPadOS, tablets and phones. |
+| NF-2 | Nothing to install. "Add to Home Screen" is optional (Phase 2). |
+| NF-3 | No backend and no database. Static files only, hosted for free on GitHub Pages from a public repository. |
+| NF-4 | All user data is stored locally in the browser (localStorage). Nothing is sent anywhere except Spotify. |
+| NF-5 | Responsive and mobile-first. Must be fully usable one-handed on a phone in portrait mode. |
+| NF-6 | Bilingual UI: English and French, with a language selector. The default language is detected from the browser. |
+| NF-7 | Plain HTML, CSS and JavaScript (native ES modules). No framework, no npm, no build step. |
+| NF-8 | No third-party runtime dependencies. Exception: the Spotify Web Playback SDK script (Phase 2). |
+| NF-9 | Everything in the repository is written in English: code, comments, docs and commit messages. |
+| NF-10 | Files are kept flat at the repository root, because they are uploaded through the GitHub web UI. |
+
+## 3. Spotify integration
+
+### 3.1 Spotify app registration
+
+- **Dashboard:** https://developer.spotify.com/dashboard. The app is named "Hockey DJ" and runs in **Development Mode**.
+- **Redirect URI (production):** `https://north-lab-kev.github.io/hockey-dj/`. It must match exactly, including the trailing slash.
+- **Redirect URI (local development):** `http://127.0.0.1:8000/`. Only loopback IPs are allowed over HTTP, and `localhost` is rejected.
+- **APIs enabled:** Web API and Web Playback SDK.
+- **Client ID:** entered by the user in the app and stored locally. It is never hard-coded or committed.
+- **Client Secret:** never used and never stored anywhere.
+
+**Development Mode constraints (as of the February 2026 changes):**
+- The app owner must have an active Premium subscription.
+- At most 5 allow-listed users. Not an issue, since the app is single user.
+- Only a restricted set of endpoints is available.
+- Search returns at most 10 results per request.
+- Spotify may change these rules again; see §11.
+
+### 3.2 Authentication
+
+- **Flow:** Authorization Code with PKCE (S256). The implicit grant was removed by Spotify in November 2025.
+- **Redirect URI:** computed at runtime as `location.origin + location.pathname`, with any trailing `index.html` removed. The same code therefore works in production and in local development. The setup screen displays this value with a Copy button so it can be registered in the dashboard.
+- **Authorize:** `GET https://accounts.spotify.com/authorize`.
+  - Parameters: `response_type=code`, `client_id`, `scope`, `redirect_uri`, `state`, `code_challenge_method=S256` and `code_challenge`.
+  - Before redirecting, the code verifier and `state` are stored in localStorage under `hockeydj.pkce`.
+- **Callback:** on load, if the URL contains `code` and `state`:
+  1. Check that `state` matches the stored value.
+  2. Exchange the code for tokens.
+  3. Delete `hockeydj.pkce`.
+  4. Clean the URL with `history.replaceState`.
+- **Token exchange:** `POST https://accounts.spotify.com/api/token` (form-encoded) with `grant_type=authorization_code`, `code`, `redirect_uri`, `client_id` and `code_verifier`.
+- **Refresh:** same endpoint with `grant_type=refresh_token`, `refresh_token` and `client_id`.
+  - Refresh proactively 60 s before expiry, and also on a 401 response (retry the request once).
+  - If the response contains a new refresh token, store it in place of the old one.
+- **Scopes:**
+
+  | Phase | Scopes |
+  |---|---|
+  | Phase 1 | `user-read-playback-state`, `user-modify-playback-state` |
+  | Phase 2 | `playlist-read-private`, `playlist-read-collaborative` (playlist import); `streaming`, `user-read-email`, `user-read-private` (Web Playback SDK) |
+
+  The granted scopes are stored. If the code requires scopes that were not granted, the app asks the user to reconnect.
+- **Disconnect:** deletes the tokens. The Client ID and playlists are kept.
+
+### 3.3 Endpoints used
+
+All endpoints below are on Spotify's "Endpoints still available" list, checked on 2026-10-18 against the Web API changelog for February 2026: https://developer.spotify.com/documentation/web-api/references/changes/february-2026
+
+| Purpose | Endpoint | Notes |
+|---|---|---|
+| Play a track from an offset | `PUT /v1/me/player/play?device_id={id}` | Body: `{"uris":["spotify:track:…"],"position_ms":45000}` |
+| Stop | `PUT /v1/me/player/pause` | |
+| List devices | `GET /v1/me/player/devices` | Device objects include `id`, `name`, `type`, `is_active` and `supports_volume` |
+| Playback state and progress | `GET /v1/me/player` | Used for "Mark here" and for state sync while playing |
+| Activate a device | `PUT /v1/me/player` | Body: `{"device_ids":["…"],"play":false}` |
+| Fade-out (Phase 2) | `PUT /v1/me/player/volume?volume_percent=` | Only when `supports_volume` is true |
+| Search tracks | `GET /v1/search?q=…&type=track&limit=10&offset=…` | Maximum `limit` is 10 |
+| Resolve a pasted link | `GET /v1/tracks/{id}` | The batch `GET /tracks` was removed |
+| Profile (display name) | `GET /v1/me` | `product`, `email` and `country` are no longer returned |
+| Import playlist (Phase 2) | `GET /v1/me/playlists`, `GET /v1/playlists/{id}/items` | Contents are returned only for playlists the user owns or collaborates on. Field paths are `items.items[].item` |
+
+**Do not use** (removed in Development Mode): `GET /tracks`, `GET /artists/{id}/top-tracks`, `GET /users/{id}`, `GET /users/{id}/playlists`, the `/playlists/{id}/tracks` endpoints (use `/items`), and the `popularity` fields.
+
+### 3.4 Playback model
+
+- **Primary mode: Spotify Connect remote control.** The app sends commands, and the Spotify app plays the audio on a target device. That device can be the same phone or tablet, or a computer connected to the arena's sound system. This works in every browser, iOS included.
+  - **Requirement:** the Spotify app must be open on the target device.
+- **Optional mode (Phase 2): Web Playback SDK.** On desktop browsers, the browser itself becomes a Spotify device. Mobile browsers are not a target for this mode, because of autoplay and background-playback limitations.
+- **Device selection:** the selected device ID is saved. If that device is missing or inactive, the app activates it with Transfer Playback before playing.
+- **Sync:** while the state is Playing and the page is visible, the app polls `GET /v1/me/player` every 5 s.
+  - If playback has stopped (the track ended, or someone paused it in Spotify), the app switches to Stopped.
+  - If a different track is playing (for example, Spotify Autoplay started after the track ended), the app pauses playback and switches to Stopped.
+- **Error handling:**
+
+  | Response | Handling |
+  |---|---|
+  | `401` | Refresh the token and retry once. |
+  | `403` | Show "Spotify Premium required" or the restriction message returned by Spotify. |
+  | `404` with no active device | Show "Open Spotify on your device" and a device picker. |
+  | `429` | Respect `Retry-After`. The `QUOTA_EXCEEDED` reason must show a clear message. |
+  | Network error | Show an offline message and keep the UI responsive. |
+
+## 4. Functional requirements
+
+### 4.1 First launch and setup
+
+| ID | Requirement |
+|---|---|
+| F-1 | On first launch, the language is auto-detected (see §4.6). |
+| F-2 | The setup screen asks for the Spotify Client ID. It includes short instructions, a link to the Spotify dashboard, and the redirect URI to register, with a Copy button. |
+| F-3 | A "Connect to Spotify" button starts the PKCE flow. |
+| F-4 | After connecting, the app shows the user's display name and asks the user to pick a playback device, with a Refresh button. |
+| F-5 | The app opens directly on the Game screen once a Client ID, valid tokens and at least one playlist exist. |
+
+### 4.2 Game screen (main screen)
+
+| ID | Requirement |
+|---|---|
+| G-1 | One **big Play/Stop button**. On a phone in portrait mode it takes at least about 40 % of the viewport height. Its state is shown by colour, icon and a text label (`PLAY` / `STOP`), never by colour alone. |
+| G-2 | **Play** starts the *current track* at its `startMs` on the selected device. **Stop** pauses playback, then moves the current-track pointer to the next track (wrapping to the first track after the last). |
+| G-3 | Feedback is optimistic: the button changes state immediately and shows a small busy indicator. If the request fails, it reverts and shows an error toast. Taps made while a request is in flight are ignored. |
+| G-4 | The screen shows the current track (cover, title, artist, start time) and the next track. |
+| G-5 | Previous and Next buttons move the current-track pointer without playing. Tapping a track in the list makes it the current track. |
+| G-6 | A playlist selector chooses the active playlist. |
+| G-7 | An indicator shows the selected device. A warning appears when no device is available. |
+| G-8 | Keyboard shortcuts on desktop: `Space` = Play/Stop, `→` / `←` = next/previous track. |
+| G-9 | The Screen Wake Lock API keeps the screen on while the Game screen is visible. It is re-acquired on `visibilitychange`, and silently skipped where unsupported. |
+
+### 4.3 Playlist management
+
+| ID | Requirement |
+|---|---|
+| P-1 | Create, rename, duplicate and delete playlists. Deleting requires confirmation. |
+| P-2 | Add tracks by searching (10 results per page, with a "Load more" button that uses `offset`) or by pasting a Spotify track link or URI. Accepted formats: `https://open.spotify.com/track/{id}`, `https://open.spotify.com/intl-xx/track/{id}`, either with an optional query string, and `spotify:track:{id}`. |
+| P-3 | When a track is added, its metadata is stored with it: `id`, `uri`, `name`, `artists`, `imageUrl` and `durationMs`. The app never needs to re-fetch it. |
+| P-4 | Each track has a start offset (`startMs`), shown as `m:ss`. It can be set in three ways: (a) typing `m:ss` or seconds; (b) nudge buttons −5 s, −1 s, +1 s, +5 s; (c) **Mark here**: while the track is previewing, this reads `progress_ms` from `GET /v1/me/player` and saves it as the start. |
+| P-5 | **Preview** plays the track from its `startMs`. A Stop control is available. |
+| P-6 | Tracks can be reordered (up/down buttons; drag-and-drop is optional) and removed. |
+| P-7 | Validation: `0 ≤ startMs < durationMs`. Out-of-range values are clamped and a warning is shown. |
+| P-8 | Every change is saved immediately (autosave). There is no Save button. |
+| P-9 | *(Phase 2)* Import a Spotify playlist the user owns or collaborates on. Imported tracks start with `startMs = 0`. |
+
+### 4.4 Export and import
+
+| ID | Requirement |
+|---|---|
+| E-1 | Export one playlist, or all playlists, as a JSON file named `hockey-dj-playlists-YYYY-MM-DD.json`. |
+| E-2 | Exports contain playlists only. They never contain tokens or the Client ID. |
+| E-3 | Import accepts a JSON file in the export format (§5.3). It validates the schema and adds the playlists. If a playlist ID already exists, the imported playlist gets a new ID and the suffix " (imported)". The app then reports how many playlists and tracks were imported. |
+| E-4 | Unknown or newer `schemaVersion` values are rejected with a clear message. |
+
+### 4.5 Settings
+
+| ID | Requirement |
+|---|---|
+| S-1 | Language selector: Auto, English, Français. |
+| S-2 | Spotify section: shows the Client ID (editable), the connection status with the display name, and a Disconnect button. |
+| S-3 | Playback device picker, with a Refresh button. |
+| S-4 | Export all and Import buttons. |
+| S-5 | "Reset all data" with a typed confirmation. It clears every `hockeydj.*` key. |
+| S-6 | An About section with the app version and a reminder that the app is for personal, non-commercial use. |
+
+### 4.6 Internationalisation (i18n)
+
+| ID | Requirement |
+|---|---|
+| I-1 | Supported languages are `en` and `fr`. All UI strings live in `i18n.js`. No user-facing text is hard-coded anywhere else. |
+| I-2 | Default language: the app walks through `navigator.languages` (falling back to `[navigator.language]`). The first entry starting with `fr` gives `fr`, and the first starting with `en` gives `en`. If neither matches, it uses `en`. |
+| I-3 | An explicit choice in the selector is saved (`settings.language`) and overrides detection. "Auto" clears it. |
+| I-4 | Switching language re-renders the UI immediately, without a reload, and updates `<html lang>`. |
+| I-5 | A compact EN / FR toggle is visible in the header on every screen. The same choice is in Settings. |
+| I-6 | Strings support named parameters, for example `t('import.done', { playlists: 2, tracks: 31 })`. |
+
+## 5. Data model
+
+### 5.1 localStorage keys
+
+All keys are prefixed with `hockeydj.`. Each value is JSON. Only `storage.js` reads or writes them.
+
+| Key | Content |
+|---|---|
+| `hockeydj.settings` | `{ "language": "en" \| "fr" \| null, "clientId": "…", "deviceId": "…", "activePlaylistId": "…", "currentIndex": 0 }` |
+| `hockeydj.auth` | `{ "accessToken": "…", "refreshToken": "…", "expiresAt": 1760000000000, "scopes": ["…"] }` |
+| `hockeydj.playlists` | `{ "schemaVersion": 1, "playlists": [ Playlist, … ] }` |
+| `hockeydj.pkce` | `{ "verifier": "…", "state": "…" }`. Temporary: exists only during the login redirect. |
+
+### 5.2 Playlist object
+
+```json
+{
+  "id": "6f1c2b1e-…",
+  "name": "Game night",
+  "createdAt": "2026-10-18T19:00:00.000Z",
+  "updatedAt": "2026-10-18T19:05:00.000Z",
+  "tracks": [
+    {
+      "id": "4uLU6hMCjMI75M1A2tKUQC",
+      "uri": "spotify:track:4uLU6hMCjMI75M1A2tKUQC",
+      "name": "Track name",
+      "artists": ["Artist"],
+      "imageUrl": "https://i.scdn.co/image/…",
+      "durationMs": 213000,
+      "startMs": 45000
+    }
+  ]
+}
+```
+
+IDs are generated with `crypto.randomUUID()`.
+
+### 5.3 Export file
+
+```json
+{
+  "app": "hockey-dj",
+  "schemaVersion": 1,
+  "exportedAt": "2026-10-18T19:10:00.000Z",
+  "playlists": [ /* Playlist objects */ ]
+}
+```
+
+### 5.4 Schema changes
+
+Any change to the stored format increments `schemaVersion` and adds a migration function in `storage.js`. Migrations run on load.
+
+## 6. Architecture and files
+
+All files are at the repository root.
+
+| File | Responsibility |
+|---|---|
+| `index.html` | Page shell, meta tags (viewport with `viewport-fit=cover`, theme colour), and loading `app.js` as a module. |
+| `style.css` | All styles. Mobile-first, CSS custom properties, light and dark themes. |
+| `app.js` | Bootstrap, OAuth callback handling, view routing (Setup / Game / Playlists / Settings) and app state. |
+| `spotify.js` | **The only module that talks to Spotify:** PKCE auth, token refresh and every Web API call, with error mapping. |
+| `storage.js` | **The only module that touches localStorage:** settings, auth, playlists, migrations, export and import. |
+| `i18n.js` | Dictionaries (`en`, `fr`), language detection, `t()` and DOM translation helpers. |
+| `ui.js` | Rendering of views and components, toasts and dialogs. |
+| `manifest.json`, `icon.svg` | *(Phase 2)* Home-screen install. |
+| `SPEC.md` | This document. |
+| `CLAUDE.md` | Guidance for AI-assisted development sessions. |
+
+## 7. UX and visual design
+
+- Mobile-first. Touch targets are at least 48 × 48 px. The Play/Stop button is the visual priority.
+- Navigation uses a persistent bar for Game, Playlists and Settings: at the bottom on narrow screens, at the top or side on wide screens.
+- The app follows the device's light or dark setting. Both themes are high-contrast and readable from a distance in a bright arena.
+- Content respects safe-area insets on notched phones.
+- Accessibility:
+  - semantic buttons with `aria-label`;
+  - `aria-pressed` on the Play/Stop button;
+  - an `aria-live` region for status and toasts;
+  - WCAG AA contrast.
+- Times are displayed as `m:ss` in both languages.
+
+## 8. Browser support
+
+- Latest versions of Chrome, Edge, Firefox, Safari (macOS, iOS, iPadOS) and Chrome for Android.
+- Required APIs: ES modules, `fetch`, Web Crypto (`crypto.subtle` for PKCE, `crypto.randomUUID`) and `localStorage`. All need a secure context (HTTPS or 127.0.0.1).
+- Optional APIs, feature-detected: Screen Wake Lock and the Clipboard API.
+
+## 9. Phases
+
+**Phase 1 — MVP**
+- Setup and PKCE authentication, with the redirect URI displayed.
+- Device selection.
+- Game screen: Play/Stop, next/previous, wake lock, keyboard shortcuts and playback sync.
+- Playlist creation and editing: search, paste a link, start offset (manual entry, nudges, Mark here), preview, reorder.
+- Export and import as JSON.
+- English and French UI with selector and auto-detection.
+- Responsive layout.
+
+**Phase 2**
+- Fade-out on Stop (only on devices with `supports_volume`).
+- Shuffle mode.
+- Import from the user's own Spotify playlists.
+- PWA manifest and icon.
+- Web Playback SDK as an optional in-browser player on desktop.
+
+**Future ideas (not committed)**
+- Song categories (goal, penalty, intermission, warm-up) with quick-access buttons.
+- Optional per-track maximum play duration.
+
+## 10. Open questions
+
+| # | Question | Current decision |
+|---|---|---|
+| Q-1 | Should Stop automatically advance to the next track? | Yes (G-2). |
+| Q-2 | What happens when a track ends on its own during a stoppage? | The app switches to Stopped and advances to the next track. |
+| Q-3 | If Spotify Autoplay starts another track after ours ends, pause it? | Yes (§3.4). Users are also advised to turn off Autoplay in the Spotify app. |
+
+## 11. Known limitations and risks
+
+- **Spotify must be open:** the Spotify app must stay open on the output device. Idle devices can disappear from the device list, so the user must reopen Spotify and refresh the device list.
+- **Latency:** there is a short delay between the tap and the sound, which depends on the network.
+- **Fade-out:** volume control may be unsupported on some devices, for example iPhones (`supports_volume: false`). Fade-out is skipped on those devices.
+- **Data is per browser:** data is stored per browser and per device. Use export and import to move playlists between devices and to keep backups.
+- **Development Mode may change:** Spotify states that Development Mode is intentionally limited and will keep evolving. All Spotify calls are isolated in `spotify.js` so changes can be absorbed in one place. Re-check the Web API changelog before adding an endpoint.
+- **Licensing:** the app is for personal, non-commercial use. Spotify Development Mode is intended for personal projects. Public performance licensing in a venue is the venue's responsibility (for example SOCAN and Ré:Sonne in Canada).
+
+## 12. References
+
+- Spotify Web API changelog, February 2026: https://developer.spotify.com/documentation/web-api/references/changes/february-2026
+- Spotify blog, "Update on Developer Access and Platform Security" (2026-02-06): https://developer.spotify.com/blog/2026-02-06-update-on-developer-access-and-platform-security
+- Spotify migration guide, February 2026: https://developer.spotify.com/documentation/web-api/tutorials/february-2026-migration-guide
+- Spotify redirect URI rules: https://developer.spotify.com/documentation/web-api/concepts/redirect_uri
+- Spotify Authorization Code with PKCE: https://developer.spotify.com/documentation/web-api/tutorials/code-pkce-flow
+- GitHub Pages documentation: https://docs.github.com/en/pages
+
+## 13. Changelog
+
+| Version | Date | Changes |
+|---|---|---|
+| 0.1 | 2026-10-18 | Initial specification: feasibility validated, technologies chosen (static GitHub Pages, vanilla JS, Spotify Connect via the Web API, PKCE, localStorage), endpoints checked against the February 2026 Spotify changes, EN/FR i18n added. |
