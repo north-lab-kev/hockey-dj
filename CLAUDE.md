@@ -11,12 +11,17 @@ Each document has one responsibility. Never copy content from one file into anot
 | `README.md` | Project overview, end-user setup guide, privacy notes | Visitors and end users |
 | `SPEC.md` | **What** the app does and **why**: requirements (with IDs), behaviour rules, Spotify integration, data model, architecture and module boundaries, phases, known limitations, spec changelog. **Final decisions only.** | Everyone, source of truth |
 | `CLAUDE.md` | **How** to work: working agreements, coding conventions, Spotify API process, local development and deployment, manual test procedure, current status | Developers and Claude |
+| `NEXT_STEPS.md` | **What could come next**: Phase 2 candidates and future ideas, each with its open questions. Nothing in it is decided. | Owner and Claude |
 
 ## Working agreements
 
 - **Language:** the project owner writes in French, so reply to him in French. Repository content follows SPEC NF-9.
 - **Spec first:** read the relevant SPEC sections before changing code. Ask before building anything that is not in the spec, and propose spec changes explicitly.
 - **Only decisions go in the spec:** ask open questions in the conversation, and list any awaiting an answer under [Current status](#current-status). Once the owner decides, write the decision into the relevant SPEC requirement. Never record questions, alternatives or "resolved" notes in `SPEC.md`.
+- **Ideas go in `NEXT_STEPS.md`:** add new ideas and candidate features there.
+  1. When the owner picks an item, settle its open questions with him.
+  2. Write the decisions into `SPEC.md` and build the item.
+  3. Remove the item from `NEXT_STEPS.md`, so it never keeps finished work.
 - **Keep SPEC.md current:** any change to behaviour, requirements or technical decisions updates `SPEC.md` in the same change. Bump its version and add a Changelog entry (SPEC §12).
 - **Keep README.md current:** update it when a phase ships or a user-visible behaviour changes. Keep it user-facing and short.
 - **Keep this file current:** update [Current status](#current-status) at the end of each working session.
@@ -95,5 +100,6 @@ There are no automated tests. Before each release, run these scenarios on a phon
   - **Phase 1 implemented (app version 0.1.0):** `index.html`, `style.css`, `app.js`, `spotify.js`, `storage.js`, `i18n.js` and `ui.js`.
     - Tested in Chromium against a mocked Spotify (accounts, Web API and images): setup and login, devices, search and paste link, start offsets and Mark here, every branch of R-1 to R-10, keyboard, export and import, errors (404 no device, 403 Premium, expired session, access denied).
     - Tested at 360, 390 and 1366 px, in light and dark, in EN and FR.
-    - **Not yet tested against the real Spotify API, or on real iOS and Android devices.**
-  - **Next:** the owner deploys and runs the manual test checklist with real Spotify, then Phase 2 (SPEC §9).
+  - **Deployed and tested by the owner with the real Spotify API:** everything worked on the first try.
+  - Phase 2 candidates and future ideas are recorded in `NEXT_STEPS.md`.
+  - **Next:** the owner picks the first item from `NEXT_STEPS.md`.

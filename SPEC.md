@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Version** | 0.7 |
+| **Version** | 0.8 |
 | **Last updated** | 2026-10-18 |
 | **Live URL** | https://north-lab-kev.github.io/hockey-dj/ |
 
@@ -312,7 +312,7 @@ All files are at the repository root.
 
 ## 9. Phases
 
-**Phase 1 — MVP**
+**Phase 1 (MVP)**
 - Setup and PKCE authentication, with the redirect URI displayed.
 - Device selection.
 - Game screen: Play/Stop with the resume-or-advance rules and automatic continuation (§4.2.1), next/previous, wake lock, keyboard shortcuts and playback sync.
@@ -321,16 +321,7 @@ All files are at the repository root.
 - English and French UI with selector and auto-detection.
 - Responsive layout.
 
-**Phase 2**
-- Fade-out on Stop (only on devices with `supports_volume`).
-- Shuffle mode.
-- Import from the user's own Spotify playlists.
-- PWA manifest and icon.
-- Web Playback SDK as an optional in-browser player on desktop.
-
-**Future ideas (not committed)**
-- Song categories (goal, penalty, intermission, warm-up) with quick-access buttons.
-- Optional per-track maximum play duration.
+**Phase 2 and later:** the candidates and ideas, which are not decided yet, are listed in [`NEXT_STEPS.md`](NEXT_STEPS.md). Items marked "Phase 2" elsewhere in this spec are the technical groundwork already prepared for them.
 
 ## 10. Known limitations and risks
 
@@ -355,6 +346,7 @@ All files are at the repository root.
 
 | Version | Date | Changes |
 |---|---|---|
+| 0.8 | 2026-10-18 | The Phase 2 list and the future ideas moved to `NEXT_STEPS.md`, since they are not decided yet. This spec keeps only the Phase 1 scope and the groundwork already prepared. |
 | 0.7 | 2026-10-18 | Phase 1 implemented. Recorded the visual identity and typography (§7), the 403 "account not registered" message (§3.4), and three guard rules (G-6, P-5, P-6). |
 | 0.6 | 2026-10-18 | Added a theme selector (S-7): Auto, which follows the device, or a forced Light or Dark theme. Added `settings.theme`, plus an inline script in `index.html` that applies the saved theme before first paint. |
 | 0.5 | 2026-10-18 | The spec now holds final decisions only. Removed the Open questions section and renumbered sections 10 to 12. |
