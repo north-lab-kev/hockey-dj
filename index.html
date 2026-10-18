@@ -1,1 +1,42 @@
-hockey-dj test page
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Hockey DJ</title>
+  <meta name="description" content="Play the right Spotify song at every stoppage of play.">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#EEF3F7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0B1424" media="(prefers-color-scheme: dark)">
+  <meta name="referrer" content="no-referrer">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cpath d='M1.5 19.5h6M1.5 28.5h6M40.5 19.5h6M40.5 28.5h6' stroke='%23D1102D' stroke-width='3' stroke-linecap='round'/%3E%3Ccircle cx='24' cy='24' r='17' fill='none' stroke='%23D1102D' stroke-width='4'/%3E%3Ccircle cx='24' cy='24' r='6' fill='%231544C2'/%3E%3C/svg%3E">
+  <script>
+    /* Applies a forced theme before first paint so it never flashes (SPEC §6, S-7).
+       This is the only read of localStorage outside storage.js, and it is read-only. */
+    (function () {
+      try {
+        var settings = JSON.parse(localStorage.getItem('hockeydj.settings') || '{}');
+        if (settings.theme === 'light' || settings.theme === 'dark') {
+          document.documentElement.setAttribute('data-theme', settings.theme);
+          var color = settings.theme === 'dark' ? '#0B1424' : '#EEF3F7';
+          document.querySelectorAll('meta[name="theme-color"]').forEach(function (meta) {
+            meta.setAttribute('content', color);
+          });
+        }
+      } catch (error) {
+        /* Storage unavailable: follow the device theme. */
+      }
+    })();
+  </script>
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <div id="app" class="app">
+    <noscript>
+      <p style="padding: 24px">Hockey DJ needs JavaScript. Turn it on in your browser settings.</p>
+    </noscript>
+  </div>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+</body>
+</html>

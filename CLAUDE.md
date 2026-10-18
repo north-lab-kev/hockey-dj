@@ -1,126 +1,99 @@
 # CLAUDE.md
 
-This file guides Claude, and any developer, working in this repository. Read it first, then read `SPEC.md`.
+How to work in this repository. Read this file first, then [`SPEC.md`](SPEC.md).
 
-## Project in one paragraph
+## Documentation map
 
-Hockey DJ is a static web app for playing Spotify music in a hockey arena during stoppages of play. One big Play/Stop button starts each song at a chosen offset (for example, the chorus) and stops it when play resumes. It has a single user and is for personal, non-commercial use. It has no backend: it is hosted on GitHub Pages and stores all of its data in the browser's localStorage. **`SPEC.md` is the source of truth** for requirements and decisions.
+Each document has one responsibility. Never copy content from one file into another. Link to the section or requirement ID instead (for example "SPEC §3.3" or "R-2").
 
-- **Live:** https://north-lab-kev.github.io/hockey-dj/
-- **Repository:** https://github.com/north-lab-kev/hockey-dj (public). GitHub Pages publishes the `main` branch from the root folder.
+| File | Owns | Audience |
+|---|---|---|
+| `README.md` | Project overview, end-user setup guide, privacy notes | Visitors and end users |
+| `SPEC.md` | **What** the app does and **why**: requirements (with IDs), behaviour rules, Spotify integration, data model, architecture and module boundaries, phases, known limitations, spec changelog. **Final decisions only.** | Everyone, source of truth |
+| `CLAUDE.md` | **How** to work: working agreements, coding conventions, Spotify API process, local development and deployment, manual test procedure, current status | Developers and Claude |
 
 ## Working agreements
 
-- **Language:** the project owner writes in French, so reply to him in French. Everything committed to the repository must be in English: code, identifiers, comments, docs and commit messages.
-- **Keep `SPEC.md` current:** any change to behaviour, requirements or technical decisions must update `SPEC.md` in the same change, with a version bump and a Changelog entry.
+- **Language:** the project owner writes in French, so reply to him in French. Repository content follows SPEC NF-9.
+- **Spec first:** read the relevant SPEC sections before changing code. Ask before building anything that is not in the spec, and propose spec changes explicitly.
+- **Only decisions go in the spec:** ask open questions in the conversation, and list any awaiting an answer under [Current status](#current-status). Once the owner decides, write the decision into the relevant SPEC requirement. Never record questions, alternatives or "resolved" notes in `SPEC.md`.
+- **Keep SPEC.md current:** any change to behaviour, requirements or technical decisions updates `SPEC.md` in the same change. Bump its version and add a Changelog entry (SPEC §12).
+- **Keep README.md current:** update it when a phase ships or a user-visible behaviour changes. Keep it user-facing and short.
 - **Keep this file current:** update [Current status](#current-status) at the end of each working session.
-- **Delivery:** the owner uploads files through the GitHub web UI (Add file → Upload files). Keep every file **flat at the repository root**, with no folders, unless the owner agrees otherwise. When delivering changes from a chat, list exactly which files changed. With Claude Code on the web, changes land on a branch, and the owner merges into `main` to deploy.
-- **Questions:** ask before adding a feature that is not in `SPEC.md`. Propose spec changes explicitly.
+- **Delivery:** the file layout follows SPEC NF-10.
+  - From a chat, list exactly which files changed. The owner uploads them through the GitHub web UI (Add file → Upload files).
+  - With Claude Code on the web, changes land on a branch, and the owner merges into `main` to deploy.
 
-## Hard technical rules
+## Coding conventions
 
-1. Plain HTML, CSS and JavaScript with native ES modules. **No framework, no npm, no bundler, no build step.**
-2. **No runtime dependencies.** The only planned exception is the Spotify Web Playback SDK (Phase 2), loaded from `https://sdk.scdn.co/spotify-player.js`.
-3. **No backend.** Never introduce a server, a proxy or a third-party API other than Spotify.
-4. **`spotify.js` is the only module that calls Spotify** (accounts and Web API). Never call `fetch` to Spotify anywhere else.
-5. **`storage.js` is the only module that touches localStorage.** Every key is prefixed with `hockeydj.`. Any change to the stored format bumps `schemaVersion` and adds a migration.
-6. **All user-facing text goes through `i18n.js`.** Add each new key to both `en` and `fr` in the same change, and never hard-code UI strings.
-7. **Never use or store a Client Secret.** Never commit a Client ID, tokens or personal data. Exports must never contain tokens.
-8. Mobile-first and responsive. Touch targets are at least 48 px. The big Play/Stop button is the top UX priority, and must be fast and unambiguous.
-9. Feature-detect optional APIs (Wake Lock, Clipboard), and degrade silently when they are missing.
+- **Boundaries:** respect the constraints in SPEC NF-7 and NF-8, and the module boundaries in SPEC §6.
+- **JavaScript:**
+  - ES2020+ native modules with named exports.
+  - `const` by default, and `async`/`await` for asynchronous code.
+  - No global variables and no inline `on…` handlers in HTML.
+- **Documentation:** a short JSDoc comment on every exported function.
+- **Constants:** thresholds, intervals and storage key names go in `UPPER_SNAKE_CASE` at the top of the module that owns them.
+- **Security:**
+  - Insert any text that comes from Spotify or from imported files with `textContent`, never `innerHTML`.
+  - Never log tokens.
+- **i18n:**
+  - Keys are dot-namespaced by screen (`game.play`, `settings.language`).
+  - Add every key to both `en` and `fr` in the same change.
+- **CSS:**
+  - Custom properties for colours, spacing and radii.
+  - Mobile-first `min-width` media queries.
+  - Class names in kebab-case.
+- **Commits:** short imperative English messages (for example "Add playlist export"), with one logical change per commit.
 
-## File map
+## Spotify API process
 
-| File | Role |
-|---|---|
-| `index.html` | Page shell. Loads `app.js` as `type="module"`. |
-| `style.css` | All styles: mobile-first, CSS variables, light and dark themes. |
-| `app.js` | Bootstrap, OAuth callback, view routing, app state. |
-| `spotify.js` | PKCE auth, token refresh, all Web API calls, error mapping. |
-| `storage.js` | localStorage wrapper, migrations, export and import. |
-| `i18n.js` | `en` and `fr` dictionaries, language detection, `t()`. |
-| `ui.js` | Views, components, toasts, dialogs. |
-| `SPEC.md` | Specification (source of truth). |
-| `CLAUDE.md` | This file. |
+Spotify's Development Mode rules change over time (see SPEC §3.1 and §10).
+- **New endpoint:** before using an endpoint that is not listed in SPEC §3.3, check that it is still available in the Spotify Web API changelog. Use the links in SPEC §11 and any newer monthly changelog. Then add the endpoint to SPEC §3.3 with the date it was checked.
+- **Something broke:** if a call that used to work starts failing (400, 403 or 404), read the latest changelog before changing the code.
+- **New scope:** if a feature needs a new OAuth scope, add it to the scope table in SPEC §3.2. The app then prompts the user to reconnect, as described in that section.
 
-## Spotify API rules (read before touching `spotify.js`)
-
-**Development Mode.** The app runs in Spotify **Development Mode**, under the rules introduced in February 2026:
-- the owner needs Premium;
-- at most 5 allow-listed users;
-- only a restricted set of endpoints;
-- search `limit` is capped at 10.
-
-**Checking endpoints.** Before using an endpoint that is not already listed in `SPEC.md` §3.3, confirm it is on the "Endpoints still available" list in https://developer.spotify.com/documentation/web-api/references/changes/february-2026. Also check any later changelog.
-
-**Removed in Development Mode (do not use):**
-- `GET /tracks` (batch);
-- `GET /artists/{id}/top-tracks`;
-- `GET /users/{id}` and `GET /users/{id}/playlists`;
-- `/playlists/{id}/tracks` (use `/playlists/{id}/items`);
-- browse and new-release endpoints.
-
-**Field changes:**
-- On playlists, `tracks` became `items` and `track` became `item`.
-- Playlist contents are returned only for playlists the user owns or collaborates on.
-- Tracks no longer include `popularity`.
-- `/me` no longer includes `product`, `email` or `country`.
-
-**OAuth:**
-- Use only Authorization Code with PKCE. The implicit grant is gone.
-- Redirect URIs must be HTTPS or a loopback IP (`http://127.0.0.1:PORT`); `localhost` is rejected.
-- The redirect URI must match a registered URI exactly.
-
-**Redirect URI:** computed at runtime as `location.origin + location.pathname`, minus any trailing `index.html`.
-- Production: `https://north-lab-kev.github.io/hockey-dj/`
-- Local: `http://127.0.0.1:8000/`
-
-**Playback model:** Spotify Connect remote control.
-- `PUT /me/player/play` with `{"uris":[…], "position_ms": …}` starts a track at its offset.
-- `PUT /me/player/pause` stops it.
-- The Spotify app must be open on the target device.
-
-**HTTP errors to handle:**
-
-| Status | Handling |
-|---|---|
-| 401 | Refresh the token, then retry once. |
-| 403 | Premium required, or a restriction. |
-| 404 | No active device. |
-| 429 | Respect `Retry-After`. `reason: QUOTA_EXCEEDED` needs a clear message. |
-
-## Local development
+## Local development and deployment
 
 ```bash
-# from the repository root (ES modules do not work from file://)
+# from the repository root (ES modules do not load from file://)
 python3 -m http.server 8000 --bind 127.0.0.1
 # open http://127.0.0.1:8000/
 ```
 
-- Register `http://127.0.0.1:8000/` as an additional Redirect URI in the Spotify dashboard (app → Settings → Redirect URIs).
-- **Deploy:** commit to `main`. GitHub Pages republishes within a few minutes. Hard-refresh, or use a private window, to bypass the cache.
+- **One-time setup:** register the local redirect URI from SPEC §3.1 in the Spotify dashboard (app → Settings → Redirect URIs).
+- **Deploy:** commit or merge to `main`. GitHub Pages republishes within a few minutes. Hard-refresh, or use a private window, to bypass the cache.
 
 ## Manual test checklist
 
-There are no automated tests. Run this checklist before each release.
+There are no automated tests. Before each release, run these scenarios on a phone and on a desktop, and check the expected behaviour against the referenced IDs.
 
-1. **First launch.** Language matches the browser (FR or EN). The EN/FR toggle switches every string without a reload.
-2. **Setup and connection.** Enter the Client ID. The redirect URI is shown and copyable. Connecting returns to the app with a clean URL, and the display name is shown.
-3. **Session persistence.** Reload the page: still connected. Wait more than 1 h, or force expiry: the token refreshes silently.
-4. **Device selection.** The device list shows the open Spotify app. With Spotify closed, a clear message appears.
-5. **Playlist editing.** Create a playlist. Search (load more works), and paste a link (`open.spotify.com` with and without `intl-xx`, and `spotify:track:`).
-6. **Start offset.** Set a start offset by typing, by nudging, and with Mark here while previewing. Out-of-range values are clamped.
-7. **Game screen: Play/Stop.** Play starts at the offset. Stop pauses and advances the pointer. Double taps are ignored while a request is pending.
-8. **Game screen: sync.** When a track ends by itself, the UI switches to Stopped.
-9. **Game screen: wake lock and keys.** The screen stays awake on the Game screen. Space and the arrow keys work on desktop.
-10. **Export and import.** Export all, reset all data, then import: the playlists are restored, and the exported file contains no tokens.
-11. **Layouts.** Check portrait phone, landscape tablet and desktop: no horizontal scroll, and the big button is easy to hit.
-12. **Browsers.** iOS Safari, Chrome for Android, and Chrome or Edge on Windows.
+1. **Language:** on first launch the language matches the browser. Switching it updates every string without a reload. (I-2, I-4, I-5)
+2. **Setup and connection:** enter the Client ID, copy the redirect URI and connect. The URL comes back clean and the display name appears. (F-2 to F-4, §3.2)
+3. **Session:** a reload keeps the session. A forced token expiry refreshes silently. (§3.2)
+4. **Devices:** test with the Spotify app open, then closed. (F-4, §3.4 error handling)
+5. **Playlist editing:** search with Load more, every pasted-link format, reorder, remove. Changes survive a reload. (P-1 to P-8)
+6. **Start offset:** set it by typing, with the nudge buttons, and with Mark here during a preview. Try out-of-range values. (P-4, P-7)
+7. **Play/Stop:** test each branch of R-2 and R-3.
+   - Stop below both thresholds, then Play: the track resumes.
+   - Stop after reaching the played threshold, then Play: the next track starts.
+   - Stop below the played threshold, wait past the idle window, then Play: the next track starts.
+   - The label follows R-9, and taps during a pending request are ignored. (R-1 to R-9, G-3)
+8. **Continuation:** let a track end by itself, and pause from the Spotify app. (R-5, §3.4)
+9. **Explicit selection:** use Previous, Next and tap-to-select, both while Stopped and while Playing. (R-7)
+10. **Reload mid-game:** reload the page during a game; the app keeps its place. (R-10)
+11. **Wake lock and keyboard:** check that the screen stays on and that the keyboard shortcuts work. (G-8, G-9)
+12. **Export, import and reset:** the exported file must contain no tokens. (E-1 to E-4, S-5)
+13. **Layouts:** portrait phone, landscape tablet and desktop. (NF-5, §7)
+14. **Theme:** on Auto, switch the device between light and dark while the app is open; the app follows live. Force Light, then Dark, and reload: the choice is kept, with no flash of the other theme. (S-7, §7)
+15. **Browsers:** every browser listed in SPEC §8.
 
 ## Current status
 
 - **2026-10-18:**
-  - Spec v0.1 written.
-  - GitHub Pages enabled; a placeholder `index.html` is live.
-  - The owner is setting up the Spotify Developer app, with redirect URI `https://north-lab-kev.github.io/hockey-dj/`.
-  - **Next:** implement Phase 1 (MVP) as described in `SPEC.md` §9.
+  - All Play/Stop behaviour decisions are final and written into SPEC §4.2.1. No questions are awaiting an answer.
+  - The docs were reorganised so that each file has a single responsibility (see the Documentation map).
+  - **Phase 1 implemented (app version 0.1.0):** `index.html`, `style.css`, `app.js`, `spotify.js`, `storage.js`, `i18n.js` and `ui.js`.
+    - Tested in Chromium against a mocked Spotify (accounts, Web API and images): setup and login, devices, search and paste link, start offsets and Mark here, every branch of R-1 to R-10, keyboard, export and import, errors (404 no device, 403 Premium, expired session, access denied).
+    - Tested at 360, 390 and 1366 px, in light and dark, in EN and FR.
+    - **Not yet tested against the real Spotify API, or on real iOS and Android devices.**
+  - **Next:** the owner deploys and runs the manual test checklist with real Spotify, then Phase 2 (SPEC §9).
