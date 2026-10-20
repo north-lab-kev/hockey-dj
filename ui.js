@@ -905,7 +905,7 @@ export function renderApp(root, state, actions) {
     h('main', { class: `main main--${state.view}`, id: 'main' }, renderView(state, actions)),
   ];
   if (state.connected) children.push(renderNav(state, actions, 'bottom'));
-  root.replaceChildren(...children);
+  root.replaceChildren(...children.filter(Boolean));
 
   if (focusKey) {
     const target = root.querySelector(`[data-focus="${CSS.escape(focusKey)}"]`);
