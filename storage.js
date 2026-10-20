@@ -8,7 +8,7 @@ const PREFIX = 'hockeydj.';
 const APP_ID = 'hockey-dj';
 
 /** Version of the stored playlist format and of export files (SPEC §5.4). */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 const KEY_SETTINGS = 'settings';
 const KEY_AUTH = 'auth';
@@ -21,12 +21,18 @@ const MAX_TEXT_LENGTH = 300;
 const MIN_TAIL_MS = 1000;
 const TRACK_ID_PATTERN = /^[A-Za-z0-9]{22}$/;
 
+/** Value of `settings.deviceId` meaning "this browser's own Spotify player" (SPEC §3.4). */
+export const BROWSER_DEVICE_ID = 'browser';
+
 const DEFAULT_SETTINGS = Object.freeze({
   language: null,
   theme: null,
   clientId: '',
   deviceId: null,
   activePlaylistId: null,
+  advanceAfterPlayedMs: null,
+  advanceAfterIdleMs: null,
+  shuffle: true,
 });
 
 const DEFAULT_GAME = Object.freeze({
@@ -34,6 +40,7 @@ const DEFAULT_GAME = Object.freeze({
   positionMs: null,
   playedMs: 0,
   stoppedAt: null,
+  shuffle: null,
 });
 
 /* ---------- Low-level access ---------- */
@@ -154,9 +161,16 @@ export function setGame(game) {
 
 function migrate(data) {
   if (!isObject(data) || !Array.isArray(data.playlists)) return null;
-  // Schema version 1 is the first format, so there is nothing to migrate yet.
-  // Future versions add their steps here, oldest first.
-  return data;
+  let { schemaVersion = 1, playlists } = data;
+  // Steps run oldest first. Version 2 adds an optional end to each track (P-10).
+  if (schemaVersion < 2) {
+    playlists = playlists.map((playlist) => ({
+      ...playlist,
+      tracks: (playlist.tracks || []).map((track) => ({ ...track, endMs: null })),
+    }));
+    schemaVersion = 2;
+  }
+  return { ...data, schemaVersion, playlists };
 }
 
 /** Returns all playlists. */
@@ -173,8 +187,8 @@ export function savePlaylists(playlists) {
 /* ---------- Export and import (SPEC §4.4, §5.3) ---------- */
 
 function cleanTrack(track) {
-  const { id, uri, name, artists, imageUrl, durationMs, startMs } = track;
-  return { id, uri, name, artists, imageUrl, durationMs, startMs };
+  const { id, uri, name, artists, imageUrl, durationMs, startMs, endMs = null } = track;
+  return { id, uri, name, artists, imageUrl, durationMs, startMs, endMs };
 }
 
 function cleanPlaylist(playlist) {
@@ -206,7 +220,10 @@ function sanitizeTrack(raw) {
   if (!isObject(raw) || typeof raw.id !== 'string' || !TRACK_ID_PATTERN.test(raw.id)) return null;
   const durationMs = Math.round(Number(raw.durationMs));
   if (!Number.isFinite(durationMs) || durationMs <= 0) return null;
-  const startMs = Math.round(Number(raw.startMs));
+  const rawStart = Math.round(Number(raw.startMs));
+  const startMs = Number.isFinite(rawStart) ? clamp(rawStart, 0, Math.max(0, durationMs - MIN_TAIL_MS)) : 0;
+  const rawEnd = raw.endMs == null ? NaN : Math.round(Number(raw.endMs));
+  const endMs = Number.isFinite(rawEnd) && rawEnd >= startMs + MIN_TAIL_MS && rawEnd < durationMs ? rawEnd : null;
   return {
     id: raw.id,
     uri: `spotify:track:${raw.id}`,
@@ -216,7 +233,8 @@ function sanitizeTrack(raw) {
       : [],
     imageUrl: typeof raw.imageUrl === 'string' && raw.imageUrl.startsWith('https://') ? raw.imageUrl : '',
     durationMs,
-    startMs: Number.isFinite(startMs) ? clamp(startMs, 0, Math.max(0, durationMs - MIN_TAIL_MS)) : 0,
+    startMs,
+    endMs,
   };
 }
 

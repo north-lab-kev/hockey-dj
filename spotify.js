@@ -9,12 +9,32 @@ const ACCOUNTS_URL = 'https://accounts.spotify.com';
 const API_URL = 'https://api.spotify.com/v1';
 
 /** OAuth scopes required by the current phase (SPEC §3.2). */
-export const SCOPES = ['user-read-playback-state', 'user-modify-playback-state'];
+export const SCOPES = [
+  'user-read-playback-state',
+  'user-modify-playback-state',
+  'playlist-read-private',
+  'playlist-read-collaborative',
+  'streaming',
+  'user-read-email',
+  'user-read-private',
+];
 
 const REFRESH_MARGIN_MS = 60_000;
 const DEFAULT_TOKEN_LIFETIME_S = 3600;
 const DEFAULT_RETRY_AFTER_S = 5;
 const SEARCH_PAGE_SIZE = 10;
+const PLAYLIST_PAGE_SIZE = 50;
+const SDK_URL = 'https://sdk.scdn.co/spotify-player.js';
+const SDK_LOAD_TIMEOUT_MS = 15_000;
+const BROWSER_PLAYER_NAME = 'Hockey DJ';
+const BROWSER_PLAYER_VOLUME = 1;
+const PLAYER_ERRORS = Object.freeze({
+  initialization_error: 'BROWSER_UNSUPPORTED',
+  authentication_error: 'MISSING_SCOPES',
+  account_error: 'PREMIUM_REQUIRED',
+  playback_error: 'BROWSER_PLAYBACK',
+});
+const MAX_PLAYLIST_PAGES = 200;
 const MIN_IMAGE_WIDTH = 160;
 const VERIFIER_LENGTH = 64;
 const STATE_LENGTH = 16;
@@ -158,9 +178,11 @@ export function hasRequiredScopes() {
   return SCOPES.every((scope) => granted.includes(scope));
 }
 
-/** Deletes the tokens. The Client ID and playlists are kept. */
+/** Deletes the tokens and closes the browser player. The Client ID and playlists are kept. */
 export function logout() {
   clearAuth();
+  browserPlayer?.disconnect();
+  browserPlayer = null;
 }
 
 let refreshing = null;
@@ -329,6 +351,121 @@ export async function searchTracks(query, offset = 0) {
 /** Returns one track by ID. */
 export async function getTrack(id) {
   return toTrack(await request('GET', `/tracks/${encodeURIComponent(id)}`));
+}
+
+/**
+ * Returns the user's playlists whose contents Spotify shares: the ones the user owns
+ * or collaborates on (SPEC §3.3, P-9). Each one is `{ id, name, imageUrl, total }`.
+ */
+export async function getImportablePlaylists() {
+  const me = await request('GET', '/me');
+  const playlists = [];
+  for (let page = 0; page < MAX_PLAYLIST_PAGES; page += 1) {
+    const data = await request('GET', '/me/playlists', { query: { limit: PLAYLIST_PAGE_SIZE, offset: page * PLAYLIST_PAGE_SIZE } });
+    for (const playlist of data?.items || []) {
+      if (!playlist?.id || !(playlist.owner?.id === me?.id || playlist.collaborative)) continue;
+      playlists.push({
+        id: playlist.id,
+        name: playlist.name || '',
+        imageUrl: pickImage(playlist.images),
+        total: playlist.items?.total ?? playlist.tracks?.total ?? 0,
+      });
+    }
+    if (!data?.next) break;
+  }
+  return playlists;
+}
+
+/**
+ * Returns every track of a playlist, in order (`GET /playlists/{id}/items`, SPEC §3.3).
+ * Local files, podcast episodes and unavailable items are counted in `unavailable`.
+ */
+export async function getPlaylistTracks(playlistId) {
+  const tracks = [];
+  let unavailable = 0;
+  for (let page = 0; page < MAX_PLAYLIST_PAGES; page += 1) {
+    const data = await request('GET', `/playlists/${encodeURIComponent(playlistId)}/items`, {
+      query: { limit: PLAYLIST_PAGE_SIZE, offset: page * PLAYLIST_PAGE_SIZE },
+    });
+    for (const entry of data?.items || []) {
+      const item = entry?.item || entry?.track;
+      const isTrack = item && (item.type || 'track') === 'track' && TRACK_ID_PATTERN.test(item.id || '');
+      if (entry?.is_local || !isTrack) unavailable += 1;
+      else tracks.push(toTrack(item));
+    }
+    if (!data?.next) break;
+  }
+  return { tracks, unavailable };
+}
+
+/* ---------- Browser player (Web Playback SDK, SPEC §3.4) ---------- */
+
+let browserPlayer = null;
+
+/**
+ * Where this browser can be a Spotify player (SPEC §3.4): "desktop", "android" (experimental),
+ * or null on iPhone and iPad, and wherever protected content (EME) is missing.
+ */
+export function browserPlaybackSupport() {
+  if (typeof navigator.requestMediaKeySystemAccess !== 'function') return null;
+  const agent = navigator.userAgent;
+  const iPadOS = /Macintosh/.test(agent) && navigator.maxTouchPoints > 1;
+  if (/iPhone|iPad|iPod/i.test(agent) || iPadOS) return null;
+  return /Android/i.test(agent) ? 'android' : 'desktop';
+}
+
+function loadSdk() {
+  if (window.Spotify?.Player) return Promise.resolve(window.Spotify);
+  return new Promise((resolve, reject) => {
+    const fail = () => reject(new SpotifyError('BROWSER_LOAD_FAILED'));
+    const timer = setTimeout(fail, SDK_LOAD_TIMEOUT_MS);
+    // The SDK calls this global once it has loaded; Spotify requires this exact name.
+    window.onSpotifyWebPlaybackSDKReady = () => {
+      clearTimeout(timer);
+      resolve(window.Spotify);
+    };
+    const script = document.createElement('script');
+    script.src = SDK_URL;
+    script.async = true;
+    script.addEventListener('error', () => {
+      clearTimeout(timer);
+      fail();
+    });
+    document.head.append(script);
+  });
+}
+
+/**
+ * Loads the Web Playback SDK and connects this browser as a Spotify device named "Hockey DJ".
+ * `onReady(deviceId)` runs each time the device is online, `onNotReady()` when it goes offline,
+ * and `onError(SpotifyError)` for player errors. Rejects if the SDK can't load or connect.
+ */
+export async function startBrowserPlayer({ onReady, onNotReady, onError }) {
+  if (browserPlayer) return;
+  const sdk = await loadSdk();
+  const player = new sdk.Player({
+    name: BROWSER_PLAYER_NAME,
+    volume: BROWSER_PLAYER_VOLUME,
+    getOAuthToken: (callback) => {
+      getAccessToken().then(callback, () => {});
+    },
+  });
+  player.addListener('ready', ({ device_id: deviceId }) => onReady(deviceId));
+  player.addListener('not_ready', () => onNotReady());
+  for (const [event, code] of Object.entries(PLAYER_ERRORS)) {
+    player.addListener(event, ({ message }) => onError(new SpotifyError(code, { detail: message })));
+  }
+  browserPlayer = player;
+  if (!(await player.connect())) {
+    browserPlayer = null;
+    throw new SpotifyError('BROWSER_UNSUPPORTED');
+  }
+}
+
+/** Unlocks audio for the browser player. Call it from a tap or a click, before playing (autoplay rules). */
+export function activateBrowserPlayer() {
+  if (!browserPlayer?.activateElement) return;
+  Promise.resolve(browserPlayer.activateElement()).catch(() => {});
 }
 
 /** Extracts a track ID from a Spotify link or URI, or returns null (SPEC P-2). */

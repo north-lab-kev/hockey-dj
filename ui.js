@@ -4,13 +4,14 @@
  * All user-facing text comes from i18n.js. Text that comes from Spotify or from
  * imported files is always inserted as text nodes, never as HTML.
  */
-import { t, tn, getLanguage } from './i18n.js';
+import { t, tn } from './i18n.js';
+import { BROWSER_DEVICE_ID } from './storage.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const TOAST_DURATION_MS = 3500;
 const ERROR_TOAST_DURATION_MS = 6500;
 const TOAST_EXIT_MS = 250;
-const NUDGES_MS = [-5000, -1000, 1000, 5000];
+const ADVANCE_NUDGE_MS = 5000;
 const RING_RADIUS = 47;
 const RING_LENGTH = 2 * Math.PI * RING_RADIUS;
 const SPOTIFY_DASHBOARD_URL = 'https://developer.spotify.com/dashboard';
@@ -65,6 +66,8 @@ const ICONS = {
   copy: [['rect', { x: 9, y: 9, width: 11, height: 11, rx: 2 }], ['path', { d: 'M5 15V6a2 2 0 0 1 2-2h8' }]],
   external: [['path', { d: 'M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5' }]],
   refresh: [['path', { d: 'M20 11a8 8 0 0 0-14.7-4.4L4 8M4 4v4h4M4 13a8 8 0 0 0 14.7 4.4L20 16M20 20v-4h-4' }]],
+  close: [['path', { d: 'M6 6l12 12M18 6 6 18' }]],
+  laptop: [['rect', { x: 4, y: 5, width: 16, height: 11, rx: 1.5 }], ['path', { d: 'M2 19.5h20' }]],
   device: [['rect', { x: 6, y: 2.5, width: 12, height: 19, rx: 2.5 }], ['circle', { cx: 12, cy: 14.5, r: 3 }], ['circle', { cx: 12, cy: 7, r: 1, ...FILLED }]],
   flag: [['path', { d: 'M5 21V4M5 4h12l-2.5 4.5L17 13H5' }]],
   download: [['path', { d: 'M12 4v11M7 10l5 5 5-5M5 20h14' }]],
@@ -113,6 +116,14 @@ export function parseTime(text) {
   match = value.match(/^\d{1,5}(?:\.\d+)?$/);
   if (match) return Math.round(Number(value) * 1000);
   return null;
+}
+
+/** A track's start, or "start → end" when it has a marked end (P-10). */
+function timeRange(track) {
+  const start = formatTime(track.startMs);
+  if (track.endMs == null) return [h('span', { class: 'sr-only' }, `${t('editor.startLabel')} `), start];
+  const end = formatTime(track.endMs);
+  return [h('span', { class: 'sr-only' }, t('editor.range', { start, end })), h('span', { 'aria-hidden': 'true' }, `${start} → ${end}`)];
 }
 
 function artistsText(track) {
@@ -173,24 +184,19 @@ function spinner() {
   return h('span', { class: 'spinner', 'aria-hidden': 'true' });
 }
 
-function langToggle(actions) {
-  const current = getLanguage();
-  return h('div', { class: 'lang', role: 'group', 'aria-label': t('settings.language') },
-    ['en', 'fr'].map((code) => h('button', {
-      type: 'button',
-      lang: code,
-      'aria-pressed': current === code ? 'true' : 'false',
-      'aria-label': code === 'en' ? 'English' : 'Français',
-      onclick: () => actions.setLanguage(code),
-    }, code.toUpperCase())));
-}
-
 function deviceChip(state, actions) {
+  const isBrowser = state.settings.deviceId === BROWSER_DEVICE_ID;
   const device = state.devices.find((candidate) => candidate.id === state.settings.deviceId);
   let label = t('devices.choose');
-  if (device) label = device.name;
-  else if (state.settings.deviceId && !state.devicesLoaded) label = t('devices.saved');
-  const warn = !device && !(state.settings.deviceId && !state.devicesLoaded);
+  let warn;
+  if (isBrowser) {
+    label = t('devices.browser');
+    warn = state.browser.status === 'error' || state.browser.status === 'offline' || !state.browser.support;
+  } else {
+    if (device) label = device.name;
+    else if (state.settings.deviceId && !state.devicesLoaded) label = t('devices.saved');
+    warn = !device && !(state.settings.deviceId && !state.devicesLoaded);
+  }
   return h('button', {
     type: 'button',
     class: `chip ${warn ? 'chip--warn' : ''}`,
@@ -227,9 +233,7 @@ function renderHeader(state, actions) {
         },
       }, logoMark(), h('span', { class: 'brand__name' }, 'Hockey DJ')),
       state.connected ? renderNav(state, actions, 'top') : null,
-      h('div', { class: 'topbar__tools' },
-        state.connected ? deviceChip(state, actions) : null,
-        langToggle(actions))));
+      state.connected ? h('div', { class: 'topbar__tools' }, deviceChip(state, actions)) : null));
 }
 
 function copyField(id, value, actions) {
@@ -264,12 +268,43 @@ function clientIdForm(state, actions, idSuffix) {
     h('button', { type: 'submit', class: 'btn btn--secondary' }, t('common.save'))));
 }
 
-/** Device list with radio buttons and a Refresh button (F-4, S-3). */
+/** Help text above the device list: mentions this browser when it can play (B-2). */
+function devicesHelp(state) {
+  return t(state.browser.support ? 'devices.helpBrowser' : 'devices.help');
+}
+
+/** "This browser" entry of the device list (B-2). */
+function browserDeviceItem(state, actions) {
+  const browser = state.browser;
+  const selected = state.settings.deviceId === BROWSER_DEVICE_ID;
+  const ready = browser.status === 'ready';
+  let meta = t(browser.support === 'android' ? 'devices.browserExperimental' : 'devices.browserMeta');
+  if (browser.status === 'loading' || browser.status === 'off') meta = t('devices.browserLoading');
+  else if (browser.status === 'offline') meta = t('devices.browserOffline');
+  else if (browser.status === 'error') meta = browser.error;
+  return h('li', {},
+    h('label', { class: `device ${ready || selected ? '' : 'is-disabled'}` },
+      h('input', {
+        type: 'radio',
+        name: 'device',
+        value: BROWSER_DEVICE_ID,
+        checked: selected,
+        disabled: !ready && !selected,
+        onchange: () => actions.selectDevice(BROWSER_DEVICE_ID),
+      }),
+      icon('laptop'),
+      h('span', { class: 'device__text' },
+        h('span', { class: 'device__name' }, t('devices.browser')),
+        h('span', { class: 'device__meta' }, meta))));
+}
+
+/** Device list with radio buttons and a Refresh button (F-4, S-3, B-2). */
 function deviceList(state, actions) {
-  const devices = state.devices;
+  const devices = state.devices.filter((device) => !state.browser.id || device.id !== state.browser.id);
+  const browserItem = state.browser.support ? browserDeviceItem(state, actions) : null;
   let content;
-  if (devices.length) {
-    content = h('ul', { class: 'devices' }, devices.map((device) => {
+  if (devices.length || browserItem) {
+    content = h('ul', { class: 'devices' }, browserItem, devices.map((device) => {
       const details = [t(`devices.type.${device.type}`, {}, device.type)];
       if (device.is_active) details.push(t('devices.active'));
       if (device.is_restricted) details.push(t('devices.restricted'));
@@ -430,8 +465,10 @@ function transport(descriptor, actions) {
     button({ label: t('game.next'), iconName: 'next', variant: 'secondary', onClick: actions.next, disabled: descriptor.busy, focusKey: 'next', hideLabelOnMobile: true, ariaLabel: t('game.next') }));
 }
 
+/** The tracks in play order: the shuffled order in shuffle mode (R-13). */
 function queueList(descriptor, actions) {
-  return h('ol', { class: 'queue' }, descriptor.playlist.tracks.map((track, index) => {
+  return h('ol', { class: 'queue' }, descriptor.queue.map((index, position) => {
+    const track = descriptor.playlist.tracks[index];
     const current = index === descriptor.index;
     return h('li', {},
       h('button', {
@@ -440,16 +477,14 @@ function queueList(descriptor, actions) {
         'aria-current': current ? 'true' : null,
         disabled: descriptor.busy,
         onclick: () => actions.selectTrack(index),
-        'data-focus': `queue-${index}`,
+        'data-focus': `queue-${track.id}`,
       },
-      h('span', { class: 'queue__num' }, String(index + 1)),
+      h('span', { class: 'queue__num' }, String(position + 1)),
       cover(track, 'queue__cover'),
       h('span', { class: 'queue__text' },
         h('span', { class: 'queue__title' }, track.name),
         h('span', { class: 'queue__artist' }, artistsText(track))),
-      h('span', { class: 'queue__start' },
-        h('span', { class: 'sr-only' }, `${t('editor.startLabel')} `),
-        formatTime(track.startMs))));
+      h('span', { class: 'queue__start' }, timeRange(track))));
   }));
 }
 
@@ -568,6 +603,15 @@ function searchResultItems(playlist, state, actions) {
 function searchPanel(playlist, state, actions) {
   return h('div', { class: 'search panel' },
     h('label', { class: 'panel__title', for: 'search-input' }, t('editor.addSongs')),
+    button({
+      label: state.spotifyImporting ? t('spotifyImport.importing') : t('spotifyImport.open'),
+      iconName: 'list',
+      variant: 'secondary',
+      extraClass: 'btn--fit',
+      onClick: actions.importSpotifyPlaylist,
+      disabled: state.spotifyImporting,
+      focusKey: 'spotify-import',
+    }),
     h('div', { class: 'search__box' },
       icon('search', 'icon search__icon'),
       h('input', {
@@ -610,35 +654,10 @@ function trackPanel(playlist, track, index, previewing, state, actions) {
         disabled: busy,
         focusKey: `preview-${key}`,
       }),
-      previewing ? h('span', { class: 'track__live', 'data-live': 'preview-time', 'aria-label': t('editor.position') }, formatTime(actions.previewPosition())) : null,
-      button({
-        label: t('editor.markHere'),
-        iconName: 'flag',
-        variant: 'primary',
-        onClick: () => actions.markHere(playlist.id, index),
-        disabled: !previewing || busy,
-        focusKey: `mark-${key}`,
-      })),
+      previewing ? h('span', { class: 'track__live', 'data-live': 'preview-time', 'aria-label': t('editor.position') }, formatTime(actions.previewPosition())) : null),
     previewing ? null : h('p', { class: 'hint' }, t('editor.markHint')),
-    h('div', { class: 'track__row' },
-      h('span', { class: 'field__label', id: `start-label-${key}` }, t('editor.startLabel')),
-      h('div', { class: 'nudge', role: 'group', 'aria-labelledby': `start-label-${key}` },
-        NUDGES_MS.slice(0, 2).map((delta) => nudgeButton(playlist, index, delta, key, actions)),
-        h('input', {
-          class: 'input nudge__input',
-          value: formatTime(track.startMs),
-          'aria-label': t('editor.startInput'),
-          autocomplete: 'off',
-          'data-focus': `start-${key}`,
-          onchange: (event) => actions.setStart(playlist.id, index, event.target.value),
-          onkeydown: (event) => {
-            if (event.key === 'Enter') {
-              event.preventDefault();
-              event.target.blur();
-            }
-          },
-        }),
-        NUDGES_MS.slice(2).map((delta) => nudgeButton(playlist, index, delta, key, actions)))),
+    markRow(playlist, track, index, 'start', previewing && !busy, actions),
+    markRow(playlist, track, index, 'end', previewing && !busy, actions),
     h('div', { class: 'track__row track__manage' },
       h('div', { class: 'track__move' },
         button({ iconName: 'up', variant: 'ghost', extraClass: 'btn--icon', ariaLabel: t('editor.moveUp'), onClick: () => actions.moveTrack(playlist.id, index, -1), disabled: index === 0, focusKey: `up-${key}` }),
@@ -647,16 +666,45 @@ function trackPanel(playlist, track, index, previewing, state, actions) {
       button({ label: t('editor.remove'), iconName: 'trash', variant: 'ghost', extraClass: 'btn--danger-text', onClick: () => actions.removeTrack(playlist.id, index), focusKey: `remove-${key}` })));
 }
 
-function nudgeButton(playlist, index, delta, key, actions) {
-  const seconds = Math.abs(delta / 1000);
-  const label = delta < 0 ? `−${seconds}` : `+${seconds}`;
-  return h('button', {
-    type: 'button',
-    class: 'btn btn--secondary nudge__btn',
-    'aria-label': t(delta < 0 ? 'editor.nudgeBack' : 'editor.nudgeForward', { seconds }),
-    onclick: () => actions.nudgeStart(playlist.id, index, delta),
-    'data-focus': `nudge-${key}-${delta}`,
-  }, label);
+/** Start or end of a track: a time field and its "Mark" button (P-4, P-10). */
+function markRow(playlist, track, index, which, canMark, actions) {
+  const isEnd = which === 'end';
+  const key = `${which}-${track.id}`;
+  return h('div', { class: 'track__row track__mark' },
+    h('label', { class: 'field__label track__mark-label', for: `input-${key}` }, t(isEnd ? 'editor.endLabel' : 'editor.startLabel')),
+    h('input', {
+      id: `input-${key}`,
+      class: 'input nudge__input',
+      value: isEnd ? (track.endMs == null ? '' : formatTime(track.endMs)) : formatTime(track.startMs),
+      placeholder: isEnd ? formatTime(track.durationMs) : null,
+      autocomplete: 'off',
+      'data-focus': key,
+      onchange: (event) => (isEnd ? actions.setEnd : actions.setStart)(playlist.id, index, event.target.value),
+      onkeydown: (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          event.target.blur();
+        }
+      },
+    }),
+    // Always rendered so both rows line up; hidden when there is nothing to clear.
+    button({
+      iconName: 'close',
+      variant: 'ghost',
+      extraClass: `btn--icon ${(isEnd ? track.endMs != null : track.startMs > 0) ? '' : 'is-hidden'}`,
+      ariaLabel: t(isEnd ? 'editor.clearEnd' : 'editor.clearStart'),
+      onClick: () => (isEnd ? actions.clearEnd : actions.clearStart)(playlist.id, index),
+      focusKey: `clear-${key}`,
+    }),
+    button({
+      label: t(isEnd ? 'editor.markEnd' : 'editor.markStart'),
+      iconName: 'flag',
+      variant: 'primary',
+      extraClass: 'track__mark-btn',
+      onClick: () => actions.markHere(playlist.id, index, which),
+      disabled: !canMark,
+      focusKey: `mark-${key}`,
+    }));
 }
 
 function trackRow(playlist, track, index, state, actions) {
@@ -677,9 +725,7 @@ function trackRow(playlist, track, index, state, actions) {
     h('span', { class: 'track__text' },
       h('span', { class: 'track__title' }, track.name),
       h('span', { class: 'track__artist' }, artistsText(track))),
-    h('span', { class: 'track__start' },
-      h('span', { class: 'sr-only' }, `${t('editor.startLabel')} `),
-      formatTime(track.startMs)),
+    h('span', { class: 'track__start' }, timeRange(track)),
     icon(expanded ? 'up' : 'down', 'icon icon--sm track__toggle')),
     expanded ? trackPanel(playlist, track, index, previewing, state, actions) : null);
 }
@@ -728,6 +774,64 @@ function segmented(name, legend, options, current, onChange) {
       h('span', {}, label)))));
 }
 
+function advanceNudge(which, delta, actions) {
+  const seconds = Math.abs(delta / 1000);
+  return h('button', {
+    type: 'button',
+    class: 'btn btn--secondary nudge__btn',
+    'aria-label': t(delta < 0 ? 'settings.nudgeLess' : 'settings.nudgeMore', { seconds }),
+    onclick: () => actions.nudgeAdvance(which, delta),
+    'data-focus': `advance-${which}-${delta}`,
+  }, delta < 0 ? `−${seconds}` : `+${seconds}`);
+}
+
+/** One R-2 threshold with nudge buttons and an m:ss input (S-8). */
+function advanceField(which, labelKey, actions) {
+  const labelId = `advance-${which}-label`;
+  return h('div', { class: 'field' },
+    h('span', { class: 'field__label', id: labelId }, t(labelKey)),
+    h('div', { class: 'nudge', role: 'group', 'aria-labelledby': labelId },
+      advanceNudge(which, -ADVANCE_NUDGE_MS, actions),
+      h('input', {
+        class: 'input nudge__input',
+        value: formatTime(actions.advanceValue(which).ms),
+        'aria-labelledby': labelId,
+        autocomplete: 'off',
+        'data-focus': `advance-${which}`,
+        onchange: (event) => actions.setAdvance(which, event.target.value),
+        onkeydown: (event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            event.target.blur();
+          }
+        },
+      }),
+      advanceNudge(which, ADVANCE_NUDGE_MS, actions)));
+}
+
+function advanceGroup(state, actions) {
+  const played = actions.advanceValue('played');
+  const idle = actions.advanceValue('idle');
+  const isDefault = played.ms === played.defaultMs && idle.ms === idle.defaultMs;
+  return settingsGroup(t('settings.advance'), [
+    segmented('order', t('settings.order'), [['shuffle', t('settings.orderShuffle')], ['playlist', t('settings.orderPlaylist')]],
+      state.settings.shuffle ? 'shuffle' : 'playlist', (value) => actions.setShuffle(value === 'shuffle')),
+    h('p', { class: 'hint' }, t(state.settings.shuffle ? 'settings.orderShuffleHelp' : 'settings.orderPlaylistHelp')),
+    h('p', { class: 'hint' }, t('settings.advanceHelp')),
+    advanceField('played', 'settings.advancePlayed', actions),
+    advanceField('idle', 'settings.advanceIdle', actions),
+    button({
+      label: t('settings.advanceReset', { played: formatTime(played.defaultMs), idle: formatTime(idle.defaultMs) }),
+      iconName: 'refresh',
+      variant: 'ghost',
+      extraClass: 'btn--fit',
+      onClick: actions.resetAdvance,
+      disabled: isDefault,
+      focusKey: 'advance-reset',
+    }),
+  ]);
+}
+
 function settingsGroup(title, children) {
   return h('section', { class: 'settings-group panel' }, h('h2', { class: 'panel__title' }, title), children);
 }
@@ -755,9 +859,10 @@ function renderSettings(state, actions) {
         state.connected ? button({ label: t('settings.disconnect'), iconName: 'logout', variant: 'ghost', extraClass: 'btn--danger-text btn--fit', onClick: actions.disconnect }) : null,
       ]),
       settingsGroup(t('settings.device'), [
-        h('p', { class: 'hint' }, t('devices.help')),
+        h('p', { class: 'hint' }, devicesHelp(state)),
         deviceList(state, actions),
       ]),
+      advanceGroup(state, actions),
       settingsGroup(t('settings.data'), [
         h('p', { class: 'hint' }, t('settings.dataHelp')),
         h('div', { class: 'button-row' },
@@ -866,6 +971,10 @@ let dialogCount = 0;
  * `onSelect` function; returning undefined from onSelect keeps the dialog open.
  * Resolves with the chosen value, or null when dismissed.
  */
+/**
+ * Opens a modal dialog. Resolves with the value of the chosen action, or null when dismissed.
+ * `body` can be a function that receives `finish(value)` to close the dialog from its content.
+ */
 export function openDialog({ title, body = [], actions = [], initialFocus = null }) {
   return new Promise((resolve) => {
     dialogCount += 1;
@@ -888,7 +997,7 @@ export function openDialog({ title, body = [], actions = [], initialFocus = null
     }, action.label));
     dialog.append(h('div', { class: 'dialog__inner' },
       h('h2', { class: 'dialog__title', id: titleId }, title),
-      body,
+      typeof body === 'function' ? body(finish) : body,
       h('div', { class: 'dialog__actions' }, buttons)));
     dialog.addEventListener('close', () => {
       finish(null);
@@ -986,11 +1095,58 @@ export function openDevicePicker(state, actions) {
   devicePickerBody = h('div', { class: 'device-dialog' }, deviceList(state, actions));
   openDialog({
     title: t('devices.title'),
-    body: [h('p', { class: 'dialog__text' }, t('devices.help')), devicePickerBody],
+    body: [h('p', { class: 'dialog__text' }, devicesHelp(state)), devicePickerBody],
     actions: [{ label: t('common.done'), value: true, className: 'btn--primary' }],
   }).then(() => {
     devicePickerBody = null;
   });
+}
+
+/**
+ * Opens the Spotify playlist picker (P-9) in a loading state.
+ * Returns `{ result, show(playlists), fail(message), close() }`; `result` resolves with the chosen playlist or null.
+ */
+export function openSpotifyPlaylistPicker() {
+  const content = h('div', { class: 'import-picker', 'aria-live': 'polite' },
+    h('p', { class: 'hint hint--box' }, spinner(), h('span', {}, t('spotifyImport.loading'))));
+  let choose = () => {};
+  let close = () => {};
+  const result = openDialog({
+    title: t('spotifyImport.title'),
+    body: (finish) => {
+      choose = finish;
+      close = () => finish(null);
+      return [h('p', { class: 'dialog__text' }, t('spotifyImport.help')), content];
+    },
+    actions: [{ label: t('common.cancel'), value: null, className: 'btn--ghost' }],
+  });
+  return {
+    result,
+    show(playlists) {
+      if (!content.isConnected) return;
+      if (!playlists.length) {
+        content.replaceChildren(h('p', { class: 'hint hint--box' }, icon('info'), h('span', {}, t('spotifyImport.none'))));
+        return;
+      }
+      content.replaceChildren(h('ul', { class: 'import-list' }, playlists.map((playlist, index) => h('li', {},
+        h('button', {
+          type: 'button',
+          class: 'import-item',
+          onclick: () => choose(playlist),
+          'data-autofocus': index === 0 ? 'true' : null,
+        },
+        cover(playlist, 'import-item__cover'),
+        h('span', { class: 'import-item__text' },
+          h('span', { class: 'import-item__name' }, playlist.name),
+          h('span', { class: 'import-item__count' }, tn('count.songs', playlist.total))),
+        icon('chevron', 'icon icon--sm'))))));
+      content.querySelector('[data-autofocus]')?.focus();
+    },
+    fail(message) {
+      if (content.isConnected) content.replaceChildren(h('p', { class: 'hint hint--error' }, icon('alert'), h('span', {}, message)));
+    },
+    close: () => close(),
+  };
 }
 
 /** Refreshes the device list inside the open device dialog, if any. */

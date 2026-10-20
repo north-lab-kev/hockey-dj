@@ -289,13 +289,11 @@ a {
   margin-left: auto;
 }
 
-.chip,
-.lang button {
+.chip {
   position: relative;
 }
 
-.chip::after,
-.lang button::after {
+.chip::after {
   content: "";
   position: absolute;
   inset: -6px -2px;
@@ -306,7 +304,7 @@ a {
   align-items: center;
   gap: 6px;
   height: 38px;
-  max-width: min(42vw, 240px);
+  max-width: min(60vw, 280px);
   padding: 0 12px;
   border: 1px solid var(--line);
   border-radius: var(--r-pill);
@@ -330,33 +328,6 @@ a {
 .chip--warn {
   border-color: var(--red);
   color: var(--red);
-}
-
-.lang {
-  display: inline-flex;
-  padding: 3px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-pill);
-  background: var(--surface);
-}
-
-.lang button {
-  height: 30px;
-  min-width: 36px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: var(--r-pill);
-  background: transparent;
-  color: var(--ink-2);
-  font-size: 0.8125rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  cursor: pointer;
-}
-
-.lang button[aria-pressed="true"] {
-  background: var(--ink);
-  color: var(--bg);
 }
 
 .main {
@@ -1624,6 +1595,20 @@ a {
   font-variant-numeric: tabular-nums;
 }
 
+.track__mark-label {
+  min-width: 44px;
+}
+
+/* Keeps its place so the Start and End rows line up, without being seen or focused. */
+.track__mark .is-hidden {
+  visibility: hidden;
+}
+
+/* Mark start and Mark end share one width, whatever the language. */
+.track__mark-btn {
+  min-width: 11.5rem;
+}
+
 .track__manage {
   justify-content: space-between;
 }
@@ -1908,6 +1893,65 @@ a {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.import-picker {
+  display: grid;
+  min-width: 0;
+}
+
+.import-list {
+  display: grid;
+  gap: 2px;
+  max-height: 50vh;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.import-item {
+  width: 100%;
+  min-height: 60px;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 12px;
+  padding: 8px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.import-item:hover {
+  background: var(--crease);
+}
+
+.import-item__cover {
+  width: 44px;
+  height: 44px;
+  border-radius: 6px;
+}
+
+.import-item__text {
+  display: grid;
+  min-width: 0;
+}
+
+.import-item__name {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.import-item__count {
+  color: var(--ink-2);
+  font-size: 0.8125rem;
 }
 
 /* ---------- Splash ---------- */

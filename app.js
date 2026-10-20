@@ -8,19 +8,29 @@ import * as spotify from './spotify.js';
 import { t, tn, has, setLanguage, resolveLanguage } from './i18n.js';
 import * as ui from './ui.js';
 
-const APP_VERSION = '0.1.0';
+const APP_VERSION = '1.0';
 
-const ADVANCE_AFTER_PLAYED_MS = 20_000; // R-2 (a)
-const ADVANCE_AFTER_IDLE_MS = 60_000; // R-2 (b)
+const ADVANCE_AFTER_PLAYED_MS = 20_000; // R-2 (a), default of S-8
+const ADVANCE_AFTER_IDLE_MS = 60_000; // R-2 (b), default of S-8
+const ADVANCE_PLAYED_MIN_MS = 1_000; // S-8
+const ADVANCE_PLAYED_MAX_MS = 300_000;
+const ADVANCE_IDLE_MIN_MS = 5_000;
+const ADVANCE_IDLE_MAX_MS = 600_000;
+const ADVANCE_STEP_MS = 1_000;
 const POLL_INTERVAL_MS = 5_000; // SPEC §3.4
 const HANDOFF_LEAD_MS = 1_000; // R-5
 const END_TOLERANCE_MS = 3_000; // SPEC §3.4 fallback
 const POLL_GRACE_MS = 2_500;
 const TICK_MS = 250;
 const SEARCH_DEBOUNCE_MS = 350;
-const MIN_TAIL_MS = 1_000; // P-7: a start must stay before the end of the track
+const MIN_TAIL_MS = 1_000; // P-7, P-10: a start must stay at least this long before the end
 const START_STEP_MS = 100;
 const THEME_COLORS = { light: '#EEF3F7', dark: '#0B1424' };
+
+const ADVANCE_SETTINGS = Object.freeze({
+  played: { key: 'advanceAfterPlayedMs', defaultMs: ADVANCE_AFTER_PLAYED_MS, minMs: ADVANCE_PLAYED_MIN_MS, maxMs: ADVANCE_PLAYED_MAX_MS },
+  idle: { key: 'advanceAfterIdleMs', defaultMs: ADVANCE_AFTER_IDLE_MS, minMs: ADVANCE_IDLE_MIN_MS, maxMs: ADVANCE_IDLE_MAX_MS },
+});
 
 const root = document.getElementById('app');
 
@@ -32,6 +42,7 @@ function idlePlayback() {
     index: 0,
     uri: null,
     durationMs: 0,
+    endMs: null,
     positionMs: 0,
     syncedAt: 0,
     segmentStartedAt: 0,
@@ -60,7 +71,9 @@ const state = {
   editingPlaylistId: null,
   expandedTrack: null,
   search: emptySearch(),
+  spotifyImporting: false,
   playback: idlePlayback(),
+  browser: { support: spotify.browserPlaybackSupport(), status: 'off', id: null, error: '', failure: null },
   appVersion: APP_VERSION,
 };
 
@@ -68,6 +81,11 @@ const actions = {
   navigate,
   setLanguage: setLanguagePreference,
   setTheme: setThemePreference,
+  advanceValue,
+  setAdvance,
+  nudgeAdvance,
+  resetAdvance,
+  setShuffle,
   saveClientId,
   connect,
   disconnect: confirmDisconnect,
@@ -79,7 +97,7 @@ const actions = {
   playStop,
   prev: () => step(-1),
   next: () => step(1),
-  selectTrack,
+  selectTrack: (index) => selectTrack(index, describeGame()?.shuffle),
   setActivePlaylist,
   describeGame,
   previewPosition: () => estimateProgress(),
@@ -96,11 +114,14 @@ const actions = {
   searchNow: () => runSearch(false),
   searchMore: () => runSearch(true),
   addTrack,
+  importSpotifyPlaylist,
   toggleTrack,
   previewToggle,
   markHere,
-  nudgeStart,
   setStart,
+  setEnd,
+  clearEnd,
+  clearStart,
   moveTrack,
   removeTrack,
   resetAll: confirmReset,
@@ -118,6 +139,21 @@ function wrap(index, length) {
 
 function maxStart(track) {
   return Math.max(0, (track?.durationMs || 0) - MIN_TAIL_MS);
+}
+
+/** Where a track stops: its marked end, or the end of the song (P-10). */
+function endOf(track) {
+  return track?.endMs ?? track?.durationMs ?? 0;
+}
+
+/** The latest position a track can resume from (R-3, P-10). */
+function maxPosition(track) {
+  return Math.max(0, endOf(track) - MIN_TAIL_MS);
+}
+
+/** Where the track that is playing stops: its marked end, or the end of the song. */
+function playbackEnd(playback) {
+  return playback.endMs ?? playback.durationMs;
 }
 
 function activePlaylist() {
@@ -144,13 +180,15 @@ function estimateProgress(now = Date.now()) {
   return playback.durationMs ? Math.min(position, playback.durationMs) : position;
 }
 
-function saveGame(game) {
-  state.game = game;
-  store.setGame(game);
+/** Saves the game state, after making its shuffle passes match the active playlist (R-11 to R-14). */
+function saveGame(game, options) {
+  state.game = withShuffle(game, options);
+  store.setGame(state.game);
 }
 
 function savePlaylists() {
   if (!store.savePlaylists(state.playlists)) ui.toast(t('errors.STORAGE'), 'error');
+  saveGame(state.game);
 }
 
 function touch(playlist) {
@@ -174,8 +212,8 @@ function render() {
 }
 
 function tick() {
-  if (isPreviewing() && !state.playback.busy && estimateProgress() >= state.playback.durationMs) {
-    state.playback = idlePlayback();
+  if (isPreviewing() && !state.playback.busy && estimateProgress() >= playbackEnd(state.playback)) {
+    stopPreview();
     render();
     return;
   }
@@ -243,9 +281,15 @@ function errorMessage(error) {
   return t(key, { seconds: error?.retryAfter ?? 5, detail: error?.detail || '' }).trim();
 }
 
+/** Disconnects from Spotify and forgets the browser player. */
+function logoutSpotify() {
+  spotify.logout();
+  state.browser = { ...state.browser, status: 'off', id: null, error: '', failure: null };
+}
+
 function markDisconnected() {
   stopLoops();
-  spotify.logout();
+  logoutSpotify();
   state.connected = false;
   state.profile = null;
   state.playback = idlePlayback();
@@ -280,7 +324,7 @@ function saveClientId(value) {
   state.settings = store.updateSettings({ clientId });
   if (changed && state.connected) {
     stopLoops();
-    spotify.logout();
+    logoutSpotify();
     state.connected = false;
     state.profile = null;
     state.view = 'setup';
@@ -307,7 +351,7 @@ async function confirmDisconnect() {
   if (!confirmed) return;
   stopLoops();
   stopPreview();
-  spotify.logout();
+  logoutSpotify();
   state.connected = false;
   state.profile = null;
   state.devices = [];
@@ -367,10 +411,73 @@ function openDevicePicker() {
   refreshDevices({ silent: true });
 }
 
+/* ---------- Browser player (SPEC §3.4, B-1 to B-5) ---------- */
+
+function setBrowser(patch) {
+  state.browser = { ...state.browser, ...patch };
+  render();
+  ui.refreshDevicePickers(state, actions);
+}
+
+/** Connects this browser as a Spotify device when it can play (B-1). */
+async function startBrowserPlayback() {
+  if (!state.browser.support || state.browser.status !== 'off') return;
+  setBrowser({ status: 'loading', error: '', failure: null });
+  try {
+    await spotify.startBrowserPlayer({
+      onReady: (id) => {
+        setBrowser({ status: 'ready', id, error: '' });
+        if (!state.settings.deviceId && state.browser.support === 'desktop') selectDevice(store.BROWSER_DEVICE_ID);
+      },
+      onNotReady: () => setBrowser({ status: 'offline' }),
+      onError: (error) => {
+        if (error.code === 'BROWSER_PLAYBACK') handleError(error);
+        else setBrowser({ status: 'error', error: errorMessage(error), failure: error });
+      },
+    });
+  } catch (error) {
+    setBrowser({ status: 'error', error: errorMessage(error), failure: error });
+  }
+}
+
+/** Maps a saved device ID to a Spotify device ID: the browser sentinel becomes the live player ID (B-3). */
+function resolveDeviceId(id) {
+  if (id !== store.BROWSER_DEVICE_ID) return id;
+  if (state.browser.status === 'ready') return state.browser.id;
+  throw (state.browser.status === 'error' && state.browser.failure) || new spotify.SpotifyError('BROWSER_NOT_READY');
+}
+
+/** The device to pause, or null to let Spotify pause the active one. */
+function pauseDeviceId() {
+  try {
+    return resolveDeviceId(state.settings.deviceId);
+  } catch {
+    return null;
+  }
+}
+
+/** Unlocks the browser player's audio during a tap, when it is (or will be) the playback device (B-4). */
+function unlockBrowserAudio() {
+  const selected = state.settings.deviceId;
+  if (selected === store.BROWSER_DEVICE_ID || (!selected && state.browser.status === 'ready')) spotify.activateBrowserPlayer();
+}
+
 /** Returns the device to play on, picking one automatically when there is no doubt. */
 async function ensureDevice() {
-  if (state.settings.deviceId) return state.settings.deviceId;
-  const devices = (await refreshDevices({ silent: true })).filter((device) => !device.is_restricted);
+  if (state.settings.deviceId) {
+    try {
+      return resolveDeviceId(state.settings.deviceId);
+    } catch (error) {
+      openDevicePicker();
+      throw error;
+    }
+  }
+  if (state.browser.support === 'desktop' && state.browser.status === 'ready') {
+    selectDevice(store.BROWSER_DEVICE_ID);
+    return state.browser.id;
+  }
+  const devices = (await refreshDevices({ silent: true }))
+    .filter((device) => !device.is_restricted && device.id !== state.browser.id);
   const pick = devices.find((device) => device.is_active) || (devices.length === 1 ? devices[0] : null);
   if (pick) {
     selectDevice(pick.id);
@@ -400,10 +507,149 @@ async function playOnDevice(uri, positionMs, deviceId) {
 
 /* ---------- Game rules (SPEC §4.2.1) ---------- */
 
+/** Returns the R-2 threshold in effect for "played" or "idle", with its default and limits (S-8). */
+function advanceValue(which) {
+  const { key, defaultMs, minMs, maxMs } = ADVANCE_SETTINGS[which];
+  const stored = state.settings[key];
+  const valid = Number.isFinite(stored) && stored >= minMs && stored <= maxMs;
+  return { ms: valid ? stored : defaultMs, defaultMs, minMs, maxMs };
+}
+
 function shouldAdvance(game, now) {
   if (!game.stoppedAt) return false;
   const idleMs = now - Date.parse(game.stoppedAt);
-  return game.playedMs >= ADVANCE_AFTER_PLAYED_MS || idleMs > ADVANCE_AFTER_IDLE_MS;
+  return game.playedMs >= advanceValue('played').ms || idleMs > advanceValue('idle').ms;
+}
+
+function setAdvanceMs(which, value) {
+  const { minMs, maxMs } = ADVANCE_SETTINGS[which];
+  const rounded = Math.round(value / ADVANCE_STEP_MS) * ADVANCE_STEP_MS;
+  const clamped = clamp(rounded, minMs, maxMs);
+  if (clamped !== rounded) {
+    ui.toast(t('settings.toast.advanceClamped', {
+      min: ui.formatTime(minMs), max: ui.formatTime(maxMs), time: ui.formatTime(clamped),
+    }), 'error');
+  }
+  state.settings = store.updateSettings({ [ADVANCE_SETTINGS[which].key]: clamped });
+  render();
+}
+
+/** Saves an R-2 threshold typed as m:ss or seconds (S-8). */
+function setAdvance(which, text) {
+  const value = ui.parseTime(text);
+  if (value == null) {
+    ui.toast(t('settings.toast.invalidTime'), 'error');
+    render();
+    return;
+  }
+  setAdvanceMs(which, value);
+}
+
+/** Moves an R-2 threshold by deltaMs (S-8). */
+function nudgeAdvance(which, deltaMs) {
+  setAdvanceMs(which, advanceValue(which).ms + deltaMs);
+}
+
+/** Restores both R-2 thresholds to their defaults (S-8). */
+function resetAdvance() {
+  state.settings = store.updateSettings({ advanceAfterPlayedMs: null, advanceAfterIdleMs: null });
+  render();
+}
+
+/* ---------- Shuffle (SPEC §4.2.2) ---------- */
+
+function randomInt(min, max) {
+  return min + Math.floor(Math.random() * (max - min + 1));
+}
+
+function shuffled(items) {
+  const result = [...items];
+  for (let index = result.length - 1; index > 0; index -= 1) {
+    const other = randomInt(0, index);
+    [result[index], result[other]] = [result[other], result[index]];
+  }
+  return result;
+}
+
+/** Keeps a new pass from starting with the song that ended the previous one (R-12). */
+function avoidRepeat(pass, lastId) {
+  if (pass.length > 1 && pass[0] === lastId) {
+    const other = randomInt(1, pass.length - 1);
+    [pass[0], pass[other]] = [pass[other], pass[0]];
+  }
+  return pass;
+}
+
+/** Drops unknown or duplicate IDs, then inserts the missing ones at random positions from `insertFrom` (R-14). */
+function repairPass(pass, ids, insertFrom) {
+  const known = new Set(ids);
+  const kept = [...new Set(pass.filter((id) => known.has(id)))];
+  const from = Math.min(insertFrom(kept), kept.length);
+  ids.filter((id) => !kept.includes(id)).forEach((id) => kept.splice(randomInt(from, kept.length), 0, id));
+  return kept;
+}
+
+function isPass(value) {
+  return Array.isArray(value) && value.every((id) => typeof id === 'string');
+}
+
+function samePass(pass, ids) {
+  return isPass(pass) && pass.length === ids.length && ids.every((id) => pass.includes(id));
+}
+
+/**
+ * Returns the game state with valid shuffle passes, or `shuffle: null` when shuffle is off (R-11 to R-14).
+ * A new game starts on a random track, unless `keepCurrent` is set.
+ */
+function withShuffle(game, { keepCurrent = false } = {}) {
+  const tracks = activePlaylist()?.tracks || [];
+  if (!state.settings.shuffle || !tracks.length) return { ...game, shuffle: null };
+  const ids = tracks.map((track) => track.id);
+  const index = wrap(game.currentIndex, tracks.length);
+  const current = game.shuffle;
+  if (!current || !isPass(current.order)) {
+    const fresh = !keepCurrent && state.playback.mode !== 'game' && !game.stoppedAt && !game.playedMs && game.positionMs == null;
+    const order = fresh ? shuffled(ids) : [ids[index], ...shuffled(ids.filter((id) => id !== ids[index]))];
+    return {
+      ...game,
+      currentIndex: fresh ? ids.indexOf(order[0]) : index,
+      shuffle: { past: null, order, upcoming: avoidRepeat(shuffled(ids), order[order.length - 1]) },
+    };
+  }
+  const order = repairPass(current.order, ids, (kept) => kept.indexOf(ids[index]) + 1);
+  const upcoming = isPass(current.upcoming) ? repairPass(current.upcoming, ids, () => 1) : shuffled(ids);
+  return {
+    ...game,
+    shuffle: {
+      past: samePass(current.past, ids) ? current.past : null,
+      order,
+      upcoming: avoidRepeat(upcoming, order[order.length - 1]),
+    },
+  };
+}
+
+/**
+ * Where a move of `delta` (+1 or -1) from the track at `index` lands (R-6, R-7, R-12).
+ * Returns the playlist index and the shuffle passes after the move. A new pass gets
+ * its own `upcoming` pass when the game state is saved.
+ */
+function moveFrom(index, delta, shuffle = state.game.shuffle) {
+  const tracks = activePlaylist().tracks;
+  if (!shuffle) return { index: wrap(index + delta, tracks.length), shuffle: null };
+  const indexOf = (id) => Math.max(0, tracks.findIndex((track) => track.id === id));
+  const { past, order } = shuffle;
+  const upcoming = shuffle.upcoming || order;
+  const target = order.indexOf(tracks[index]?.id) + delta;
+  if (target >= order.length) return { index: indexOf(upcoming[0]), shuffle: { past: order, order: upcoming, upcoming: null } };
+  if (target < 0 && past) return { index: indexOf(past[past.length - 1]), shuffle: { past: null, order: past, upcoming: order } };
+  return { index: indexOf(order[wrap(target, order.length)]), shuffle };
+}
+
+/** Turns shuffle on or off (S-9). The current track stays where it is. */
+function setShuffle(enabled) {
+  state.settings = store.updateSettings({ shuffle: enabled });
+  saveGame({ ...state.game, shuffle: null }, { keepCurrent: true });
+  render();
 }
 
 /** What the next Play will do (R-2, R-3, R-9). */
@@ -412,12 +658,12 @@ function planPlay(now = Date.now()) {
   const game = state.game;
   const index = wrap(game.currentIndex, tracks.length);
   if (shouldAdvance(game, now)) {
-    const next = wrap(index + 1, tracks.length);
-    return { index: next, positionMs: tracks[next].startMs, status: 'next' };
+    const next = moveFrom(index, 1);
+    return { index: next.index, positionMs: tracks[next.index].startMs, status: 'next', shuffle: next.shuffle };
   }
   const track = tracks[index];
-  const positionMs = clamp(game.positionMs ?? track.startMs, 0, maxStart(track));
-  return { index, positionMs, status: game.stoppedAt ? 'resume' : 'start' };
+  const positionMs = clamp(game.positionMs ?? track.startMs, 0, maxPosition(track));
+  return { index, positionMs, status: game.stoppedAt ? 'resume' : 'start', shuffle: game.shuffle };
 }
 
 /** Describes the Game screen: the track Play will start (or is playing) and its status. */
@@ -428,12 +674,15 @@ function describeGame(now = Date.now()) {
   const playback = state.playback;
   let plan;
   if (playback.mode === 'game' && playback.status === 'playing') {
-    plan = { index: wrap(playback.index, tracks.length), positionMs: estimateProgress(now), status: 'playing' };
+    plan = { index: wrap(playback.index, tracks.length), positionMs: estimateProgress(now), status: 'playing', shuffle: state.game.shuffle };
   } else {
     plan = planPlay(now);
   }
   const track = tracks[plan.index];
-  const thenIndex = wrap(plan.index + 1, tracks.length);
+  const thenIndex = moveFrom(plan.index, 1, plan.shuffle).index;
+  const queue = plan.shuffle
+    ? plan.shuffle.order.map((id) => tracks.findIndex((candidate) => candidate.id === id)).filter((index) => index >= 0)
+    : tracks.map((_, index) => index);
   return {
     playlist,
     playing: plan.status === 'playing',
@@ -441,9 +690,11 @@ function describeGame(now = Date.now()) {
     index: plan.index,
     status: plan.status,
     positionMs: plan.positionMs,
-    durationMs: playback.mode === 'game' && plan.status === 'playing' ? playback.durationMs : track.durationMs,
+    durationMs: playback.mode === 'game' && plan.status === 'playing' ? playbackEnd(playback) : endOf(track),
     track,
     thenTrack: tracks[thenIndex],
+    queue,
+    shuffle: plan.shuffle,
   };
 }
 
@@ -453,6 +704,7 @@ async function playStop() {
     await stopGame();
     return;
   }
+  unlockBrowserAudio();
   const playlist = activePlaylist();
   if (!playlist || !playlist.tracks.length) {
     ui.toast(t('game.toast.empty'), 'error');
@@ -460,11 +712,11 @@ async function playStop() {
   }
   if (state.playback.mode === 'preview') state.playback = idlePlayback();
   const plan = planPlay();
-  await startGameTrack(plan.index, plan.positionMs, { resetPlayed: plan.status === 'next' });
+  await startGameTrack(plan.index, plan.positionMs, { resetPlayed: plan.status === 'next', shuffle: plan.shuffle });
 }
 
 /** Starts a track of the active playlist. Returns true on success. */
-async function startGameTrack(index, positionMs, { resetPlayed }) {
+async function startGameTrack(index, positionMs, { resetPlayed, shuffle = state.game.shuffle }) {
   const track = activePlaylist().tracks[index];
   stopLoops();
   state.playback = {
@@ -475,6 +727,7 @@ async function startGameTrack(index, positionMs, { resetPlayed }) {
     index,
     uri: track.uri,
     durationMs: track.durationMs,
+    endMs: track.endMs ?? null,
     positionMs,
   };
   render();
@@ -490,7 +743,7 @@ async function startGameTrack(index, positionMs, { resetPlayed }) {
   const now = Date.now();
   state.playback = { ...state.playback, busy: false, syncedAt: now, segmentStartedAt: now, ignorePollUntil: now + POLL_GRACE_MS };
   const sameTrack = index === state.game.currentIndex && !resetPlayed;
-  saveGame({ currentIndex: index, positionMs, playedMs: sameTrack ? state.game.playedMs : 0, stoppedAt: null });
+  saveGame({ currentIndex: index, positionMs, playedMs: sameTrack ? state.game.playedMs : 0, stoppedAt: null, shuffle });
   startLoops();
   render();
   return true;
@@ -500,14 +753,14 @@ async function startGameTrack(index, positionMs, { resetPlayed }) {
 async function stopGame({ external = false } = {}) {
   const playback = state.playback;
   const now = Date.now();
-  const positionMs = clamp(estimateProgress(now), 0, Math.max(0, playback.durationMs - MIN_TAIL_MS));
+  const positionMs = clamp(estimateProgress(now), 0, Math.max(0, playbackEnd(playback) - MIN_TAIL_MS));
   const segmentMs = Math.max(0, now - playback.segmentStartedAt);
   stopLoops();
   if (!external) {
     state.playback = { ...playback, status: 'stopped', busy: true };
     render();
     try {
-      await spotify.pause(state.settings.deviceId);
+      await spotify.pause(pauseDeviceId());
     } catch (error) {
       state.playback = playback;
       startLoops();
@@ -531,30 +784,33 @@ async function continueToNext() {
   if (!isGamePlaying() || state.playback.busy) return;
   const tracks = activePlaylist()?.tracks;
   if (!tracks?.length) return;
-  const next = wrap(state.playback.index + 1, tracks.length);
-  const started = await startGameTrack(next, tracks[next].startMs, { resetPlayed: true });
+  const { index: next, shuffle } = moveFrom(state.playback.index, 1);
+  const started = await startGameTrack(next, tracks[next].startMs, { resetPlayed: true, shuffle });
   if (!started) {
-    saveGame({ currentIndex: next, positionMs: null, playedMs: 0, stoppedAt: null });
+    saveGame({ currentIndex: next, positionMs: null, playedMs: 0, stoppedAt: null, shuffle });
     render();
   }
 }
 
-/** Explicit selection (R-7). */
-async function selectTrack(index) {
+/** Explicit selection (R-7). In shuffle mode, play continues in the shuffled order from the selected track (R-13). */
+async function selectTrack(index, shuffle = state.game.shuffle) {
   const playlist = activePlaylist();
   if (!playlist?.tracks.length || state.playback.busy) return;
   const target = wrap(index, playlist.tracks.length);
   if (isGamePlaying()) {
-    await startGameTrack(target, playlist.tracks[target].startMs, { resetPlayed: true });
+    unlockBrowserAudio();
+    await startGameTrack(target, playlist.tracks[target].startMs, { resetPlayed: true, shuffle });
     return;
   }
-  saveGame({ currentIndex: target, positionMs: null, playedMs: 0, stoppedAt: null });
+  saveGame({ currentIndex: target, positionMs: null, playedMs: 0, stoppedAt: null, shuffle });
   render();
 }
 
 function step(delta) {
   const descriptor = describeGame();
-  if (descriptor) selectTrack(descriptor.index + delta);
+  if (!descriptor) return;
+  const move = moveFrom(descriptor.index, delta, descriptor.shuffle);
+  selectTrack(move.index, move.shuffle);
 }
 
 function setActivePlaylist(id) {
@@ -596,8 +852,10 @@ function schedulePoll(delay = POLL_INTERVAL_MS) {
 function scheduleHandoff() {
   clearTimeout(handoffTimer);
   if (!isGamePlaying()) return;
-  const remaining = state.playback.durationMs - estimateProgress();
-  handoffTimer = setTimeout(continueToNext, Math.max(0, remaining - HANDOFF_LEAD_MS));
+  // A marked end cuts exactly there; a natural end hands off a little early (R-5, P-10).
+  const lead = state.playback.endMs != null ? 0 : HANDOFF_LEAD_MS;
+  const remaining = playbackEnd(state.playback) - estimateProgress();
+  handoffTimer = setTimeout(continueToNext, Math.max(0, remaining - lead));
 }
 
 async function pollPlayback() {
@@ -631,8 +889,8 @@ async function pollPlayback() {
     schedulePoll();
     return;
   }
-  const nearEnd = playback.durationMs - estimateProgress(now) <= END_TOLERANCE_MS
-    || (sameTrack && remote.progress_ms >= playback.durationMs - END_TOLERANCE_MS);
+  const nearEnd = playbackEnd(playback) - estimateProgress(now) <= END_TOLERANCE_MS
+    || (sameTrack && remote.progress_ms >= playbackEnd(playback) - END_TOLERANCE_MS);
   if (nearEnd || (remote?.is_playing && !sameTrack)) {
     // Our track ended, or something else (for example Spotify Autoplay) took over.
     continueToNext();
@@ -673,6 +931,7 @@ async function restorePlayback() {
     index,
     uri: track.uri,
     durationMs: remote.item.duration_ms || track.durationMs,
+    endMs: track.endMs ?? null,
     positionMs: remote.progress_ms,
     syncedAt: now,
     segmentStartedAt: now,
@@ -923,14 +1182,81 @@ async function runSearch(more) {
   ui.updateSearchResults(state, actions);
 }
 
+/** Adds one track to the playlist being edited. A track that is already in it is never added twice (P-2). */
 function addTrack(track) {
   const playlist = findPlaylist(state.editingPlaylistId);
-  if (!playlist || playlist.tracks.some((existing) => existing.id === track.id)) return;
-  playlist.tracks.push({ ...track, startMs: 0 });
+  if (!playlist) return;
+  if (playlist.tracks.some((existing) => existing.id === track.id)) {
+    ui.toast(t('editor.alreadyAdded', { name: track.name }));
+    return;
+  }
+  playlist.tracks.push({ ...track, startMs: 0, endMs: null });
   touch(playlist);
   savePlaylists();
   if (playlist.tracks.length === 1 && !activePlaylist()) ensureActivePlaylist();
   render();
+}
+
+/* ---------- Spotify playlist import (P-9) ---------- */
+
+/** Lets the user pick one of their Spotify playlists and appends its songs, skipping duplicates. */
+async function importSpotifyPlaylist() {
+  const playlistId = state.editingPlaylistId;
+  if (!findPlaylist(playlistId) || state.spotifyImporting) return;
+
+  const picker = ui.openSpotifyPlaylistPicker();
+  spotify.getImportablePlaylists().then(picker.show, (error) => {
+    if (error.code === 'NOT_CONNECTED') {
+      picker.close();
+      handleError(error);
+      return;
+    }
+    picker.fail(errorMessage(error));
+  });
+  const choice = await picker.result;
+  if (!choice) return;
+
+  state.spotifyImporting = true;
+  render();
+  let result;
+  try {
+    result = await spotify.getPlaylistTracks(choice.id);
+  } catch (error) {
+    state.spotifyImporting = false;
+    render();
+    handleError(error);
+    return;
+  }
+  state.spotifyImporting = false;
+
+  const playlist = findPlaylist(playlistId);
+  if (!playlist) {
+    render();
+    return;
+  }
+  const known = new Set(playlist.tracks.map((track) => track.id));
+  let added = 0;
+  let skipped = 0;
+  for (const track of result.tracks) {
+    if (known.has(track.id)) {
+      skipped += 1;
+      continue;
+    }
+    known.add(track.id);
+    playlist.tracks.push({ ...track, startMs: 0, endMs: null });
+    added += 1;
+  }
+  if (added) {
+    touch(playlist);
+    savePlaylists();
+    if (!activePlaylist()) ensureActivePlaylist();
+  }
+  render();
+
+  const parts = [added ? tn('spotifyImport.added', added) : t('spotifyImport.noneAdded')];
+  if (skipped) parts.push(tn('spotifyImport.skipped', skipped));
+  if (result.unavailable) parts.push(tn('spotifyImport.unavailable', result.unavailable));
+  ui.toast(parts.join(' · '), added ? 'success' : 'info');
 }
 
 /* ---------- Track editing (P-4 to P-7) ---------- */
@@ -948,14 +1274,64 @@ function setStartMs(playlistId, index, value) {
   const clamped = clamp(rounded, 0, maxStart(track));
   if (clamped !== rounded) ui.toast(t('editor.toast.clamped', { time: ui.formatTime(clamped) }), 'error');
   track.startMs = clamped;
+  if (track.endMs != null && track.endMs < clamped + MIN_TAIL_MS) {
+    track.endMs = null;
+    ui.toast(t('editor.toast.endCleared'), 'error');
+  }
   touch(playlist);
   savePlaylists();
   render();
 }
 
-function nudgeStart(playlistId, index, deltaMs) {
-  const track = findPlaylist(playlistId)?.tracks[index];
-  if (track) setStartMs(playlistId, index, track.startMs + deltaMs);
+/** Sets or clears (null) the end of a track (P-10). An end at or past the end of the song is cleared. */
+function setEndMs(playlistId, index, value) {
+  const playlist = findPlaylist(playlistId);
+  const track = playlist?.tracks[index];
+  if (!track) return false;
+  let endMs = null;
+  if (value != null) {
+    const rounded = Math.round(value / START_STEP_MS) * START_STEP_MS;
+    const earliest = track.startMs + MIN_TAIL_MS;
+    if (rounded < earliest) {
+      ui.toast(t('editor.toast.endBeforeStart', { time: ui.formatTime(earliest) }), 'error');
+      render();
+      return false;
+    }
+    endMs = rounded >= track.durationMs ? null : rounded;
+  }
+  track.endMs = endMs;
+  const playback = state.playback;
+  if (playback.mode && playback.uri === track.uri) {
+    // The new end applies to the preview or game track that is playing now.
+    playback.endMs = endMs;
+    if (isGamePlaying()) scheduleHandoff();
+  }
+  touch(playlist);
+  savePlaylists();
+  render();
+  return true;
+}
+
+function setEnd(playlistId, index, text) {
+  if (!String(text || '').trim()) {
+    setEndMs(playlistId, index, null);
+    return;
+  }
+  const value = ui.parseTime(text);
+  if (value == null) {
+    ui.toast(t('editor.toast.invalidTime'), 'error');
+    render();
+    return;
+  }
+  setEndMs(playlistId, index, value);
+}
+
+function clearEnd(playlistId, index) {
+  setEndMs(playlistId, index, null);
+}
+
+function clearStart(playlistId, index) {
+  setStartMs(playlistId, index, 0);
 }
 
 function setStart(playlistId, index, text) {
@@ -972,7 +1348,7 @@ function stopPreview() {
   const playback = state.playback;
   if (playback.mode !== 'preview') return;
   state.playback = idlePlayback();
-  if (playback.status === 'playing') spotify.pause(state.settings.deviceId).catch(() => {});
+  if (playback.status === 'playing') spotify.pause(pauseDeviceId()).catch(() => {});
 }
 
 async function previewToggle(playlistId, index) {
@@ -989,7 +1365,7 @@ async function previewToggle(playlistId, index) {
     state.playback = { ...playback, busy: true };
     render();
     try {
-      await spotify.pause(state.settings.deviceId);
+      await spotify.pause(pauseDeviceId());
     } catch (error) {
       handleError(error);
     }
@@ -997,7 +1373,8 @@ async function previewToggle(playlistId, index) {
     render();
     return;
   }
-  state.playback = { ...idlePlayback(), status: 'playing', mode: 'preview', busy: true, previewKey: { playlistId, index }, uri: track.uri, durationMs: track.durationMs, positionMs: track.startMs };
+  unlockBrowserAudio();
+  state.playback = { ...idlePlayback(), status: 'playing', mode: 'preview', busy: true, previewKey: { playlistId, index }, uri: track.uri, durationMs: track.durationMs, endMs: track.endMs ?? null, positionMs: track.startMs };
   render();
   try {
     const deviceId = await ensureDevice();
@@ -1010,7 +1387,8 @@ async function previewToggle(playlistId, index) {
   render();
 }
 
-async function markHere(playlistId, index) {
+/** Saves the preview position as the start or the end of the track (P-4, P-10). */
+async function markHere(playlistId, index, which = 'start') {
   const playback = state.playback;
   if (!isPreviewing() || playback.previewKey?.playlistId !== playlistId || playback.previewKey?.index !== index) return;
   let positionMs = estimateProgress();
@@ -1023,6 +1401,12 @@ async function markHere(playlistId, index) {
     }
   } catch {
     /* Keep the local estimate. */
+  }
+  if (which === 'end') {
+    if (!setEndMs(playlistId, index, positionMs)) return;
+    const track = findPlaylist(playlistId)?.tracks[index];
+    if (track) ui.toast(t('editor.toast.endSet', { time: ui.formatTime(endOf(track)) }), 'success');
+    return;
   }
   setStartMs(playlistId, index, positionMs);
   const track = findPlaylist(playlistId)?.tracks[index];
@@ -1078,7 +1462,7 @@ function removeTrack(playlistId, index) {
     }
     currentIndex = playlist.tracks.length ? wrap(currentIndex, playlist.tracks.length) : 0;
     if (state.playback.mode === 'game' && index < state.playback.index) state.playback.index -= 1;
-    saveGame({ currentIndex, positionMs, playedMs, stoppedAt });
+    saveGame({ ...state.game, currentIndex, positionMs, playedMs, stoppedAt });
   }
   ui.toast(t('editor.toast.removed', { name: removed.name }));
   render();
@@ -1130,11 +1514,13 @@ async function init() {
   }
 
   ensureActivePlaylist();
+  saveGame(state.game);
   state.view = initialView();
   render();
   setInterval(tick, TICK_MS);
 
   if (state.connected) {
+    startBrowserPlayback();
     loadProfile();
     await refreshDevices({ silent: true });
     restorePlayback();

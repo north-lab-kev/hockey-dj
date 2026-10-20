@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Version** | 0.8 |
-| **Last updated** | 2026-10-18 |
+| **Version** | 1.0 |
+| **Last updated** | 2026-10-20 |
 | **Live URL** | https://north-lab-kev.github.io/hockey-dj/ |
 
 > This document defines **what** Hockey DJ does and **why**. It is the source of truth for requirements and technical decisions, and changes to it are recorded in the [Changelog](#12-changelog).
@@ -24,13 +24,13 @@ Hockey DJ is a web app for playing music in a hockey arena during stoppages of p
 | ID | Requirement |
 |---|---|
 | NF-1 | Runs in any modern browser on Windows, Android, iOS/iPadOS, tablets and phones. |
-| NF-2 | Nothing to install. "Add to Home Screen" is optional (Phase 2). |
+| NF-2 | Nothing to install. Installing the app on a home screen or desktop is optional (§4.7). |
 | NF-3 | No backend and no database. Static files only, hosted for free on GitHub Pages from a public repository, published from the `main` branch root. |
 | NF-4 | All user data is stored locally in the browser (localStorage). Nothing is sent anywhere except Spotify. |
 | NF-5 | Responsive and mobile-first. Must be fully usable one-handed on a phone in portrait mode. |
 | NF-6 | Bilingual UI: English and French, with a language selector. The default language is detected from the browser. |
 | NF-7 | Plain HTML, CSS and JavaScript (native ES modules). No framework, no npm, no build step. |
-| NF-8 | No third-party runtime dependencies. Exception: the Spotify Web Playback SDK script (Phase 2). |
+| NF-8 | No third-party runtime dependencies. Exception: the Spotify Web Playback SDK script (§3.4). |
 | NF-9 | Everything in the repository is written in English: code, comments, docs and commit messages. |
 | NF-10 | Files are kept flat at the repository root, because they are uploaded through the GitHub web UI. |
 
@@ -72,8 +72,7 @@ Hockey DJ is a web app for playing music in a hockey arena during stoppages of p
 
   | Phase | Scopes |
   |---|---|
-  | Phase 1 | `user-read-playback-state`, `user-modify-playback-state` |
-  | Phase 2 | `playlist-read-private`, `playlist-read-collaborative` (playlist import); `streaming`, `user-read-email`, `user-read-private` (Web Playback SDK) |
+  | Current | `user-read-playback-state`, `user-modify-playback-state`; `playlist-read-private`, `playlist-read-collaborative` (Spotify playlist import, P-9); `streaming`, `user-read-email`, `user-read-private` (browser player, §3.4) |
 
   The granted scopes are stored. If the code requires scopes that were not granted, the app asks the user to reconnect.
 - **Disconnect:** deletes the tokens. The Client ID and playlists are kept.
@@ -86,14 +85,14 @@ All endpoints below are on Spotify's "Endpoints still available" list, checked o
 |---|---|---|
 | Play a track from an offset | `PUT /v1/me/player/play?device_id={id}` | Body: `{"uris":["spotify:track:…"],"position_ms":45000}` |
 | Stop | `PUT /v1/me/player/pause` | |
-| List devices | `GET /v1/me/player/devices` | Device objects include `id`, `name`, `type`, `is_active` and `supports_volume` |
+| List devices | `GET /v1/me/player/devices` | Device objects include `id`, `name`, `type` and `is_active` |
 | Playback state and progress | `GET /v1/me/player` | Used for "Mark here" and for state sync while playing |
 | Activate a device | `PUT /v1/me/player` | Body: `{"device_ids":["…"],"play":false}` |
-| Fade-out (Phase 2) | `PUT /v1/me/player/volume?volume_percent=` | Only when `supports_volume` is true |
 | Search tracks | `GET /v1/search?q=…&type=track&limit=10&offset=…` | Maximum `limit` is 10 |
 | Resolve a pasted link | `GET /v1/tracks/{id}` | The batch `GET /tracks` was removed |
-| Profile (display name) | `GET /v1/me` | `product`, `email` and `country` are no longer returned |
-| Import playlist (Phase 2) | `GET /v1/me/playlists`, `GET /v1/playlists/{id}/items` | Contents are returned only for playlists the user owns or collaborates on. Field paths are `items.items[].item` |
+| Profile (display name and user ID) | `GET /v1/me` | `product`, `email` and `country` are no longer returned. The `id` tells which playlists the user owns (P-9) |
+| Import a Spotify playlist (P-9) | `GET /v1/me/playlists?limit=50&offset=…`, `GET /v1/playlists/{id}/items?limit=50&offset=…` | Checked again on 2026-10-20. `GET /me/playlists` also lists followed playlists, but contents are returned only for playlists the user owns or collaborates on. The track count is `items.total`, and each entry's track is `item` (the older `track` field is deprecated). Pages hold at most 50 entries |
+| Browser player (§3.4) | Web Playback SDK script `https://sdk.scdn.co/spotify-player.js` | "Web Playback SDK" is enabled in the app's dashboard (confirmed by the owner on 2026-10-20). The browser device is then played and paused with the same Web API calls as any other device |
 
 **Do not use** (removed in Development Mode): `GET /tracks`, `GET /artists/{id}/top-tracks`, `GET /users/{id}`, `GET /users/{id}/playlists`, the `/playlists/{id}/tracks` endpoints (use `/items`), and the `popularity` fields.
 
@@ -101,7 +100,15 @@ All endpoints below are on Spotify's "Endpoints still available" list, checked o
 
 - **Primary mode: Spotify Connect remote control.** The app sends commands, and the Spotify app plays the audio on a target device. That device can be the same phone or tablet, or a computer connected to the arena's sound system. This works in every browser, iOS included.
   - **Requirement:** the Spotify app must be open on the target device.
-- **Optional mode (Phase 2): Web Playback SDK.** On desktop browsers, the browser itself becomes a Spotify device. Mobile browsers are not a target for this mode, because of autoplay and background-playback limitations.
+- **Browser player: Web Playback SDK.** The browser tab itself becomes a Spotify device, so no Spotify app is needed on that computer.
+
+  | ID | Rule |
+  |---|---|
+  | B-1 | The player runs in desktop browsers that support protected content (EME), and in Android browsers as an experimental option. It never runs on iPhone or iPad. Once connected, the app creates it automatically at startup, with the device name "Hockey DJ". |
+  | B-2 | The device list shows "This browser" first, with its state: plays here, experimental on Android, getting ready, reconnecting, or the error. The same device's entry returned by `GET /me/player/devices` is hidden, and the help text mentions the browser player. |
+  | B-3 | Choosing it saves `settings.deviceId = "browser"`. Each request maps this value to the live SDK device ID, which can change on every page load. On desktop, when no device is saved, the browser player is selected as soon as it is ready. On Android it is never selected automatically. |
+  | B-4 | Browsers allow sound only after a user gesture, so Play, Previous, Next and tap-to-select while playing, and Preview, unlock the player's audio during the tap. Automatic continuation (R-5) then plays without a tap. |
+  | B-5 | Errors (the SDK can't load, protected content is unavailable, the account isn't Premium, a permission is missing) are shown on the "This browser" entry and when Play is pressed, and the device picker opens. A playback error shows a toast. |
 - **Device selection:** the selected device ID is saved. If that device is missing or inactive, the app activates it with Transfer Playback before playing.
 - **Sync:** while the state is Playing and the page is visible, the app polls `GET /v1/me/player` every 5 s. Polling keeps the progress up to date and detects external changes.
   - **End-of-track handoff:** from the latest known progress, the app schedules the next track to start about 1 s before the current one ends (rule R-5 in §4.2.1). This avoids silence and keeps Spotify Autoplay from taking over.
@@ -153,29 +160,39 @@ For the current track, the app keeps three values:
 | ID | Rule |
 |---|---|
 | R-1 | **Stop** pauses playback and saves `positionMs` and `stoppedAt`. It does not move the pointer. |
-| R-2 | **Play after a Stop** advances to the next track and starts it at its `startMs` if **at least one** of these is true: (a) `playedMs ≥ 20 s`, meaning the current track has already played for at least 20 seconds in total; (b) `now − stoppedAt > 60 s`, meaning more than 1 minute has passed since Stop. |
-| R-3 | Otherwise, **Play resumes** the current track at `positionMs`, like a pause. The app resumes by sending the track URI again with `position_ms`, never with a bare resume, so it cannot resume something else. |
+| R-2 | **Play after a Stop** advances to the next track and starts it at its `startMs` if **at least one** of these is true: (a) `playedMs ≥` the played threshold (20 s by default), meaning the current track has already played that long in total; (b) `now − stoppedAt >` the idle window (60 s by default), meaning that much time has passed since Stop. Both values are user settings (S-8). |
+| R-3 | Otherwise, **Play resumes** the current track at `positionMs` (at least 1 s before its end, P-10), like a pause. The app resumes by sending the track URI again with `position_ms`, never with a bare resume, so it cannot resume something else. |
 | R-4 | Whenever the current track changes, `playedMs` resets to 0 and `positionMs` is set to the new track's `startMs`. |
-| R-5 | **End of track:** when the current track ends while playing, the app immediately plays the next track of its playlist at that track's `startMs`. Playback continues down the list until Stop is pressed. |
-| R-6 | The pointer wraps from the last track back to the first. |
+| R-5 | **End of track:** when the current track reaches its end while playing (its marked end, P-10, or the end of the song), the app immediately plays the next track at that track's `startMs`: the next one in the playlist, or in the shuffled order (§4.2.2). Playback continues until Stop is pressed. |
+| R-6 | In playlist order, the pointer wraps from the last track back to the first. In shuffle mode, R-12 applies. |
 | R-7 | **Explicit selection** (Previous, Next, or tapping a track): while Stopped, it only selects the track, and the next Play starts it at its `startMs`, bypassing R-2 and R-3. While Playing, the selected track starts immediately at its `startMs`. |
-| R-8 | The thresholds are constants in `app.js`: `ADVANCE_AFTER_PLAYED_MS = 20000` and `ADVANCE_AFTER_IDLE_MS = 60000`. |
-| R-9 | While Stopped, the Game screen always shows what the next Play will do: "Resume — {track} at m:ss" or "Next — {track}". When the 60 s idle window expires, the label updates by itself. |
-| R-10 | The game state (`currentIndex`, `positionMs`, `playedMs`, `stoppedAt`) is saved, so a page reload keeps the user's place. Previews in the playlist editor never change the game state. Changing the active playlist resets the game state. |
+| R-8 | The defaults of the two thresholds are constants in `app.js`: `ADVANCE_AFTER_PLAYED_MS = 20000` and `ADVANCE_AFTER_IDLE_MS = 60000`. A missing, invalid or out-of-range stored value falls back to its default. |
+| R-9 | While Stopped, the Game screen always shows what the next Play will do: "Resume — {track} at m:ss" or "Next — {track}". When the idle window expires, the label updates by itself. |
+| R-10 | The game state (`currentIndex`, `positionMs`, `playedMs`, `stoppedAt`, and the shuffle passes of R-14) is saved, so a page reload keeps the user's place. Previews in the playlist editor never change the game state. Changing the active playlist resets the game state. |
+
+#### 4.2.2 Shuffle
+
+| ID | Rule |
+|---|---|
+| R-11 | **Shuffle** (S-9, on by default) plays the songs in a random order. That order is used by automatic continuation (R-5), by the next track chosen in R-2, and by Previous and Next (R-7). |
+| R-12 | A **pass** plays every song of the playlist once. When a pass ends, a new random order starts, and its first song is never the one that just ended (when the playlist has more than one song). Previous on the first song of a pass goes back to the last song of the previous pass. The app keeps only one previous pass: beyond it, Previous wraps to the end of the current pass. |
+| R-13 | The list on the Game screen shows the current pass in play order, numbered by play position. Tapping a song selects it (R-7), and play then continues in the shuffled order from that song. |
+| R-14 | The game state stores three passes of track IDs: the previous one, the current one and the next one. A reload therefore keeps the order (R-10). A new game (a new active playlist, or no saved order) starts on a random song. Turning shuffle on keeps the current song and shuffles the others after it. Turning it off returns to the playlist order from the current song. A song added to the active playlist is inserted at a random position later in the current pass and in the next pass, and a removed song is dropped from them. |
 
 ### 4.3 Playlist management
 
 | ID | Requirement |
 |---|---|
 | P-1 | Create, rename, duplicate and delete playlists. Deleting requires confirmation. |
-| P-2 | Add tracks by searching (10 results per page, with a "Load more" button that uses `offset`) or by pasting a Spotify track link or URI. Accepted formats: `https://open.spotify.com/track/{id}`, `https://open.spotify.com/intl-xx/track/{id}`, either with an optional query string, and `spotify:track:{id}`. |
+| P-2 | Add tracks by searching (10 results per page, with a "Load more" button that uses `offset`) or by pasting a Spotify track link or URI. Accepted formats: `https://open.spotify.com/track/{id}`, `https://open.spotify.com/intl-xx/track/{id}`, either with an optional query string, and `spotify:track:{id}`. A track that is already in the playlist (same track ID) is never added twice: its search result shows as added. |
 | P-3 | When a track is added, its metadata is stored with it: `id`, `uri`, `name`, `artists`, `imageUrl` and `durationMs`. The app never needs to re-fetch it. |
-| P-4 | Each track has a start offset (`startMs`), shown as `m:ss`. It can be set in three ways: (a) typing `m:ss` or seconds; (b) nudge buttons −5 s, −1 s, +1 s, +5 s; (c) **Mark here**: while the track is previewing, this reads `progress_ms` from `GET /v1/me/player` and saves it as the start. |
-| P-5 | **Preview** plays the track from its `startMs`. A Stop control is available. Preview is unavailable while game music plays, and it stops when the user leaves the editor. |
+| P-4 | Each track has a start offset (`startMs`), shown as `m:ss`. It can be set in two ways: (a) typing `m:ss` or seconds in the Start field; (b) **Mark start**: while the track is previewing, this reads `progress_ms` from `GET /v1/me/player` and saves it as the start. When the start is after 0:00, a x button resets it to 0:00. |
+| P-5 | **Preview** plays the track from its `startMs` and stops by itself at its end (P-10). A Stop control is available. Preview is unavailable while game music plays, and it stops when the user leaves the editor. |
 | P-6 | Tracks can be reordered (up/down buttons; drag-and-drop is optional) and removed. The track that is playing in the game cannot be removed, and the active playlist cannot be deleted while its music plays. |
-| P-7 | Validation: `0 ≤ startMs < durationMs`. Out-of-range values are clamped and a warning is shown. |
+| P-7 | Validation: `0 ≤ startMs ≤ durationMs − 1 s`. Out-of-range values are clamped and a warning is shown. A start moved to less than 1 s before the marked end removes that end, with a warning. |
 | P-8 | Every change is saved immediately (autosave). There is no Save button. |
-| P-9 | *(Phase 2)* Import a Spotify playlist the user owns or collaborates on. Imported tracks start with `startMs = 0`. |
+| P-10 | Each track can have a marked end (`endMs`), where play stops and moves on to the next track (R-5). It is optional: `null` means the end of the song. It can be set by typing `m:ss` or seconds in the End field (empty or the song's length clears it), with **Mark end** while previewing, or cleared with a × button. It must be at least 1 s after the start, otherwise it is refused with a warning. The Game list and the editor show "start → end" when an end is marked, and the progress ring and the time shown go up to that end. Changing the end of the track that is playing applies at once. |
+| P-9 | **Import a Spotify playlist** into the playlist being edited. The picker lists only the user's playlists that they own or collaborate on. The songs are added at the end, in the Spotify order, with `startMs = 0`. Songs already in the playlist (same track ID) and repeats inside the Spotify playlist are skipped, and so are local files and podcast episodes. A message then reports how many songs were added, skipped as duplicates, and unavailable. |
 
 ### 4.4 Export and import
 
@@ -197,6 +214,8 @@ For the current track, the app keeps three values:
 | S-5 | "Reset all data" with a typed confirmation. It clears every `hockeydj.*` key. |
 | S-6 | An About section with the app version and a reminder that the app is for personal, non-commercial use. |
 | S-7 | Theme selector: Auto (default, follows the device), Light, Dark. The choice is saved in `settings.theme` and applied immediately, without a reload (see §7). |
+| S-8 | "Next song" section with the two R-2 thresholds: the played threshold (1 s to 5:00, default 0:20) and the idle window (5 s to 10:00, default 1:00). Each one is set by typing `m:ss` or seconds, or with −5 s / +5 s buttons. Values are rounded to the second, and out-of-range values are clamped with a warning. They are saved in `settings.advanceAfterPlayedMs` and `settings.advanceAfterIdleMs` and apply to the next Play. A "Restore defaults" button sets both back to `null`, which means the default. |
+| S-9 | Play order selector in the "Next song" section: Shuffle (default) or Playlist order (§4.2.2). The choice is saved in `settings.shuffle` and applies immediately, also during a game. |
 
 ### 4.6 Internationalisation (i18n)
 
@@ -206,8 +225,17 @@ For the current track, the app keeps three values:
 | I-2 | Default language: the app walks through `navigator.languages` (falling back to `[navigator.language]`). The first entry starting with `fr` gives `fr`, and the first starting with `en` gives `en`. If neither matches, it uses `en`. |
 | I-3 | An explicit choice in the selector is saved (`settings.language`) and overrides detection. "Auto" clears it. |
 | I-4 | Switching language re-renders the UI immediately, without a reload, and updates `<html lang>`. |
-| I-5 | A compact EN / FR toggle is visible in the header on every screen. The same choice is in Settings. |
+| I-5 | The language is changed only in Settings (S-1). The header has no language toggle, so before the first connection the language follows detection (I-2). |
 | I-6 | Strings support named parameters, for example `t('import.done', { playlists: 2, tracks: 31 })`. |
+
+### 4.7 Installation
+
+| ID | Requirement |
+|---|---|
+| A-1 | The app is installable: "Install" in Chrome and Edge, "Add to Home Screen" on Android and iOS. Once installed, it opens full screen from its own icon. |
+| A-2 | `manifest.json`: `name` and `short_name` "Hockey DJ", `display: standalone`, `id`, `start_url` and `scope` set to `./`, and background and theme colour `#0B1424`. The relative paths keep the PKCE redirect URI unchanged (§3.2) in production and in local development. |
+| A-3 | Icons: the face-off mark (red ring and hash marks, blue dot, in the dark-theme colours) on a dark `#0B1424` background. `icon.svg` and the 192 and 512 px PNGs have rounded corners. `icon-maskable-512.png` is full bleed, with the mark inside the maskable safe zone. `apple-touch-icon.png` (180 px, full bleed) is for iOS. `icon.svg` is also the favicon. |
+| A-4 | No service worker and no offline mode, because every action needs Spotify. Chrome no longer requires a service worker to offer installation. |
 
 ## 5. Data model
 
@@ -217,10 +245,10 @@ All keys are prefixed with `hockeydj.`. Each value is JSON. Only `storage.js` re
 
 | Key | Content |
 |---|---|
-| `hockeydj.settings` | `{ "language": "en" \| "fr" \| null, "theme": "light" \| "dark" \| null, "clientId": "…", "deviceId": "…", "activePlaylistId": "…" }` |
-| `hockeydj.game` | `{ "currentIndex": 0, "positionMs": 45000, "playedMs": 12000, "stoppedAt": "2026-10-18T19:30:00.000Z" \| null }` (see R-10) |
+| `hockeydj.settings` | `{ "language": "en" \| "fr" \| null, "theme": "light" \| "dark" \| null, "clientId": "…", "deviceId": "…" \| "browser", "activePlaylistId": "…", "advanceAfterPlayedMs": 20000 \| null, "advanceAfterIdleMs": 60000 \| null, "shuffle": true \| false }` (`null` = default, S-8; `shuffle` defaults to `true`, S-9) |
+| `hockeydj.game` | `{ "currentIndex": 0, "positionMs": 45000, "playedMs": 12000, "stoppedAt": "2026-10-18T19:30:00.000Z" \| null, "shuffle": { "past": ["trackId", …] \| null, "order": ["trackId", …], "upcoming": ["trackId", …] } \| null }` (see R-10 and R-14; `shuffle` is `null` in playlist order) |
 | `hockeydj.auth` | `{ "accessToken": "…", "refreshToken": "…", "expiresAt": 1760000000000, "scopes": ["…"] }` |
-| `hockeydj.playlists` | `{ "schemaVersion": 1, "playlists": [ Playlist, … ] }` |
+| `hockeydj.playlists` | `{ "schemaVersion": 2, "playlists": [ Playlist, … ] }` |
 | `hockeydj.pkce` | `{ "verifier": "…", "state": "…" }`. Temporary: exists only during the login redirect. |
 
 ### 5.2 Playlist object
@@ -239,7 +267,8 @@ All keys are prefixed with `hockeydj.`. Each value is JSON. Only `storage.js` re
       "artists": ["Artist"],
       "imageUrl": "https://i.scdn.co/image/…",
       "durationMs": 213000,
-      "startMs": 45000
+      "startMs": 45000,
+      "endMs": 130000
     }
   ]
 }
@@ -252,7 +281,7 @@ IDs are generated with `crypto.randomUUID()`.
 ```json
 {
   "app": "hockey-dj",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "exportedAt": "2026-10-18T19:10:00.000Z",
   "playlists": [ /* Playlist objects */ ]
 }
@@ -261,6 +290,8 @@ IDs are generated with `crypto.randomUUID()`.
 ### 5.4 Schema changes
 
 Any change to the stored format increments `schemaVersion` and adds a migration function in `storage.js`. Migrations run on load.
+
+- **Version 2:** adds `endMs` to each track (P-10). Stored version 1 playlists get `endMs: null`. Version 1 export files are still accepted by import, and their tracks get no end.
 
 ## 6. Architecture and files
 
@@ -271,11 +302,11 @@ All files are at the repository root.
 | `index.html` | Page shell, meta tags (viewport with `viewport-fit=cover`, theme colour), and loading `app.js` as a module. It also holds a tiny inline script in `<head>` that applies the saved theme before first paint, so a forced theme never flashes. This script is the only read of localStorage outside `storage.js`, and it is read-only. |
 | `style.css` | All styles. Mobile-first, CSS custom properties, light and dark themes. |
 | `app.js` | Bootstrap, OAuth callback handling, view routing (Setup / Game / Playlists / Settings) and app state. |
-| `spotify.js` | **The only module that talks to Spotify:** PKCE auth, token refresh and every Web API call, with error mapping. |
+| `spotify.js` | **The only module that talks to Spotify:** PKCE auth, token refresh, every Web API call with error mapping, and the Web Playback SDK player (§3.4). |
 | `storage.js` | **The only module that touches localStorage:** settings, auth, playlists, migrations, export and import. |
 | `i18n.js` | Dictionaries (`en`, `fr`), language detection, `t()` and DOM translation helpers. |
 | `ui.js` | Rendering of views and components, toasts and dialogs. |
-| `manifest.json`, `icon.svg` | *(Phase 2)* Home-screen install. |
+| `manifest.json`, `icon.svg`, `icon-192.png`, `icon-512.png`, `icon-maskable-512.png`, `apple-touch-icon.png` | Installation (§4.7). |
 | `README.md` | Repository home page: overview, user setup guide, privacy notes, development quick start. |
 | `SPEC.md` | This document. |
 | `CLAUDE.md` | Guidance for AI-assisted development sessions. |
@@ -308,7 +339,7 @@ All files are at the repository root.
 
 - Latest versions of Chrome, Edge, Firefox, Safari (macOS, iOS, iPadOS) and Chrome for Android.
 - Required APIs: ES modules, `fetch`, Web Crypto (`crypto.subtle` for PKCE, `crypto.randomUUID`) and `localStorage`. All need a secure context (HTTPS or 127.0.0.1).
-- Optional APIs, feature-detected: Screen Wake Lock and the Clipboard API.
+- Optional APIs, feature-detected: Screen Wake Lock, the Clipboard API, and Encrypted Media Extensions for the browser player (B-1).
 
 ## 9. Phases
 
@@ -321,14 +352,21 @@ All files are at the repository root.
 - English and French UI with selector and auto-detection.
 - Responsive layout.
 
-**Phase 2 and later:** the candidates and ideas, which are not decided yet, are listed in [`NEXT_STEPS.md`](NEXT_STEPS.md). Items marked "Phase 2" elsewhere in this spec are the technical groundwork already prepared for them.
+**Phase 2**
+- R-2 thresholds in Settings (S-8).
+- Shuffle (§4.2.2).
+- Spotify playlist import (P-9).
+- Language in Settings only (I-5).
+- Installation (§4.7).
+- Browser player (§3.4, B-1 to B-5).
 
 ## 10. Known limitations and risks
 
-- **Spotify must be open:** the Spotify app must stay open on the output device. Idle devices can disappear from the device list, so the user must reopen Spotify and refresh the device list.
+- **Browser player:** the music stops if the tab is closed, so the tab must stay open during a game. Some browsers ask before playing protected content (DRM), for example Firefox. On Android, playback may stop when the screen locks or the tab goes to the background.
+- **Spotify must be open:** with any device other than the browser player, the Spotify app must stay open on the output device. Idle devices can disappear from the device list, so the user must reopen Spotify and refresh the device list.
 - **Latency:** there is a short delay between the tap and the sound, which depends on the network.
 - **Track transitions:** the handoff to the next track (R-5) is timed from polled progress. There may be a very short gap, or the last second of a track may be cut.
-- **Fade-out:** volume control may be unsupported on some devices, for example iPhones (`supports_volume: false`). Fade-out is skipped on those devices.
+- **Installed on iOS:** an app added to the iOS home screen has its own storage, separate from Safari. The user connects again there and moves playlists with export and import.
 - **Data is per browser:** data is stored per browser and per device. Use export and import to move playlists between devices and to keep backups.
 - **Development Mode may change:** Spotify states that Development Mode is intentionally limited and will keep evolving. All Spotify calls are isolated in `spotify.js` so changes can be absorbed in one place.
 - **Licensing:** the app is for personal, non-commercial use. Spotify Development Mode is intended for personal projects. Public performance licensing in a venue is the venue's responsibility (for example SOCAN and Ré:Sonne in Canada).
@@ -346,6 +384,17 @@ All files are at the repository root.
 
 | Version | Date | Changes |
 |---|---|---|
+| 1.0 | 2026-10-20 | Version 1.0: Phase 1 and Phase 2 are complete, and the app version is 1.0. No functional change. |
+| 0.18 | 2026-10-20 | A x button resets the start to 0:00, like the one that removes the end (P-4). |
+| 0.17 | 2026-10-20 | Added an optional marked end per track (P-10) with Mark end, and renamed Mark here to Mark start. Removed the ±1 s and ±5 s nudge buttons from the editor (P-4). Preview stops at the end (P-5), R-3, R-5 and P-7 updated. Playlist schema version 2 (§5.4). |
+| 0.16 | 2026-10-20 | Removed `NEXT_STEPS.md`. §9 now lists what Phase 2 delivered. |
+| 0.15 | 2026-10-20 | Added the browser player (Web Playback SDK, §3.4, B-1 to B-5): default device on desktop, experimental on Android, never on iPhone or iPad. Its three scopes are now required (§3.2), so users reconnect once. NF-8, §3.3, §5.1, §6, §8 and §10 updated. |
+| 0.14 | 2026-10-20 | Added installation (§4.7, A-1 to A-4): manifest, icons and iOS meta tags, without a service worker. NF-2, §6 and §10 updated. |
+| 0.13 | 2026-10-20 | Added the Spotify playlist import (P-9) into the playlist being edited, without duplicates. P-2 now states that a track is never added twice. The playlist scopes are now required (§3.2), so existing users reconnect once. §3.3 endpoints checked again. |
+| 0.12 | 2026-10-20 | Removed the EN / FR toggle from the header. The language is now changed only in Settings (I-5). |
+| 0.11 | 2026-10-20 | Added shuffle (§4.2.2, R-11 to R-14), on by default and set in Settings (S-9). A new random order starts at every pass, Previous and Next follow the shuffled order, and the order is kept across a reload. R-5, R-6, R-10 and §5.1 updated. |
+| 0.10 | 2026-10-20 | The two R-2 thresholds (played 20 s, idle 60 s) are now user settings (S-8), saved in `hockeydj.settings`. The constants of R-8 are their defaults. |
+| 0.9 | 2026-10-20 | Dropped the fade-out on Stop: the Spotify volume control is not reliable on every device. Removed the volume endpoint (§3.3) and the related limitation (§10). |
 | 0.8 | 2026-10-18 | The Phase 2 list and the future ideas moved to `NEXT_STEPS.md`, since they are not decided yet. This spec keeps only the Phase 1 scope and the groundwork already prepared. |
 | 0.7 | 2026-10-18 | Phase 1 implemented. Recorded the visual identity and typography (§7), the 403 "account not registered" message (§3.4), and three guard rules (G-6, P-5, P-6). |
 | 0.6 | 2026-10-18 | Added a theme selector (S-7): Auto, which follows the device, or a forced Light or Dark theme. Added `settings.theme`, plus an inline script in `index.html` that applies the saved theme before first paint. |

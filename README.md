@@ -13,24 +13,27 @@ Hockey DJ is a lightweight web app for playing music in a hockey arena. Build pl
 ## Features
 
 - **Big Play/Stop button** designed for one-handed use during a game.
-- **Custom start times:** each song starts at the moment you choose, set by typing it, nudging by ±1/±5 s, or tapping **Mark here** while listening.
+- **Custom start and end times:** each song starts and stops at the moments you choose, set by typing them or by tapping **Mark start** and **Mark end** while listening. At the end, the next song starts.
 - **Smart resume:**
   - A song stopped after a few seconds resumes where it left off.
-  - A song that already played 20 s, or was stopped more than a minute ago, moves on to the next one.
+  - A song that already played 20 s, or was stopped more than a minute ago, moves on to the next one. Both times can be changed in Settings.
   - The screen always shows whether the next Play will be "Resume" or "Next".
-- **Continuous play:** when a song ends, the next song in your playlist starts at its own start time.
+- **Continuous play:** when a song ends, the next song starts at its own start time.
+- **Shuffle, on by default:** every song plays once in a random order, then a new order starts. You can switch to the playlist order in Settings.
 - **Playlists:**
   - Create, edit, reorder and duplicate playlists.
-  - Add songs by searching Spotify or by pasting a Spotify link.
+  - Add songs by searching Spotify, by pasting a Spotify link, or by importing one of your Spotify playlists. A song is never added twice.
 - **Export and import** playlists as JSON files, for backups or to move them to another device.
 - **English and French**, detected automatically from your browser and switchable at any time.
 - **Light and dark themes** that follow your device automatically, or can be forced in Settings.
-- **Works everywhere:** Windows, macOS, Android, iPhone and iPad, in any modern browser. Nothing to install.
+- **Works everywhere:** Windows, macOS, Android, iPhone and iPad, in any modern browser. Nothing to install, but you can install it as an app if you like.
 - **Private by design:** no server and no account. Your data stays in your browser.
 
 ## How it works
 
-Hockey DJ is a remote control for Spotify. It does not play audio itself. It tells the Spotify app, running on your phone, tablet or a computer connected to the arena's sound system, what to play and from which second (Spotify Connect, through the Spotify Web API).
+Hockey DJ is a remote control for Spotify. It tells the Spotify app, running on your phone, tablet or a computer connected to the arena's sound system, what to play and from which second (Spotify Connect, through the Spotify Web API).
+
+On a computer, Hockey DJ can also play the music itself: choose **This browser** as the device, and no Spotify app is needed. Keep the tab open during the game. On Android this mode is experimental, and it isn't available on iPhone or iPad.
 
 ```
 [ Hockey DJ in your browser ] --(Spotify Web API)--> [ Spotify app ] --> [ Arena speakers ]
@@ -41,7 +44,7 @@ The app is a set of static files hosted on GitHub Pages. You sign in to Spotify 
 ## Requirements
 
 - A **Spotify Premium** account.
-- The **Spotify app open** on the device that plays the sound.
+- The **Spotify app open** on the device that plays the sound, unless you play in the browser on a computer.
 - A modern browser: current Chrome, Edge, Firefox or Safari.
 - An internet connection.
 
@@ -65,7 +68,7 @@ The app is a set of static files hosted on GitHub Pages. You sign in to Spotify 
 
 ### 3. Build a playlist
 
-Create a playlist, add songs, and set each song's start time. Use **Preview** and **Mark here** to find the best moment.
+Create a playlist, add songs, and set each song's start time, and an end time if you want. Use **Preview** with **Mark start** and **Mark end** to find the best moments.
 
 ### 4. Game time
 
@@ -73,7 +76,7 @@ Open the **Game** screen and tap **PLAY** at each stoppage, then **STOP** when t
 
 **Tips**
 - Turn off **Autoplay** in the Spotify app settings, so Spotify never adds songs of its own.
-- On phones and tablets, use your browser's **Add to Home Screen** for a full-screen, app-like experience.
+- **Install it as an app** for a full-screen window with its own icon: **Install** in the address bar of Chrome or Edge, or **Add to Home Screen** on Android and iPhone. On iPhone, the installed app has its own storage: connect again there, and use export and import to bring your playlists.
 - **Export** your playlists regularly. Data is stored per browser and per device.
 
 ## Privacy
