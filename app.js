@@ -7,8 +7,10 @@ import * as store from './storage.js';
 import * as spotify from './spotify.js';
 import { t, tn, has, setLanguage, resolveLanguage } from './i18n.js';
 import * as ui from './ui.js';
+import { APP_VERSION } from './version.js';
 
-const APP_VERSION = '1.0';
+const SERVICE_WORKER_URL = 'sw.js'; // U-1
+const UPDATE_CHECK_INTERVAL_MS = 30 * 60_000; // U-2
 
 const ADVANCE_AFTER_PLAYED_MS = 20_000; // R-2 (a), default of S-8
 const ADVANCE_AFTER_IDLE_MS = 60_000; // R-2 (b), default of S-8
@@ -75,6 +77,7 @@ const state = {
   playback: idlePlayback(),
   browser: { support: spotify.browserPlaybackSupport(), status: 'off', id: null, error: '', failure: null },
   appVersion: APP_VERSION,
+  updateVersion: null,
 };
 
 const actions = {
@@ -125,6 +128,7 @@ const actions = {
   moveTrack,
   removeTrack,
   resetAll: confirmReset,
+  reloadApp: () => location.reload(),
 };
 
 /* ---------- Helpers ---------- */
@@ -994,8 +998,33 @@ function bindGlobalEvents() {
   });
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && isGamePlaying()) schedulePoll(0);
+    if (document.visibilityState === 'visible') checkForUpdate();
     updateWakeLock();
   });
+}
+
+/* ---------- Updates (SPEC §4.8) ---------- */
+
+/** Registers the service worker that keeps every page load on the latest files (U-1). */
+function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.register(SERVICE_WORKER_URL, { updateViaCache: 'none' }).catch(() => {
+    /* Not supported here: the browser cache rules apply. */
+  });
+}
+
+/** Compares the running version with the deployed one, and shows the update banner when they differ (U-2). */
+async function checkForUpdate() {
+  if (state.updateVersion) return;
+  try {
+    const deployed = await import(`./version.js?check=${Date.now()}`);
+    if (deployed.APP_VERSION && deployed.APP_VERSION !== APP_VERSION) {
+      state.updateVersion = deployed.APP_VERSION;
+      render();
+    }
+  } catch {
+    /* Offline or not deployed yet: try again later. */
+  }
 }
 
 /* ---------- Playlists (SPEC §4.3) ---------- */
@@ -1513,6 +1542,8 @@ async function init() {
     state.notice = t('setup.notice.reconnect');
   }
 
+  registerServiceWorker();
+  setInterval(checkForUpdate, UPDATE_CHECK_INTERVAL_MS);
   ensureActivePlaylist();
   saveGame(state.game);
   state.view = initialView();

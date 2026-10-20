@@ -131,6 +131,8 @@ const en = {
   'editor.toast.playingNow': 'This song is playing. Stop the music before removing it.',
 
   'import.suffix': ' (imported)',
+  'update.available': 'Hockey DJ {version} is available. Reload between two stoppages to use it.',
+  'update.reload': 'Reload',
   'spotifyImport.open': 'Import a Spotify playlist',
   'spotifyImport.importing': 'Importing…',
   'spotifyImport.title': 'Import a Spotify playlist',
@@ -369,6 +371,8 @@ const fr = {
   'editor.toast.playingNow': 'Cette chanson joue. Arrêtez la musique avant de la retirer.',
 
   'import.suffix': ' (importée)',
+  'update.available': 'Hockey DJ {version} est disponible. Rechargez entre deux arrêts de jeu pour l’utiliser.',
+  'update.reload': 'Recharger',
   'spotifyImport.open': 'Importer une playlist Spotify',
   'spotifyImport.importing': 'Importation…',
   'spotifyImport.title': 'Importer une playlist Spotify',

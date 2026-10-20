@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Version** | 1.0 |
+| **Version** | 1.1 |
 | **Last updated** | 2026-10-20 |
 | **Live URL** | https://north-lab-kev.github.io/hockey-dj/ |
 
@@ -235,7 +235,14 @@ For the current track, the app keeps three values:
 | A-1 | The app is installable: "Install" in Chrome and Edge, "Add to Home Screen" on Android and iOS. Once installed, it opens full screen from its own icon. |
 | A-2 | `manifest.json`: `name` and `short_name` "Hockey DJ", `display: standalone`, `id`, `start_url` and `scope` set to `./`, and background and theme colour `#0B1424`. The relative paths keep the PKCE redirect URI unchanged (§3.2) in production and in local development. |
 | A-3 | Icons: the face-off mark (red ring and hash marks, blue dot, in the dark-theme colours) on a dark `#0B1424` background. `icon.svg` and the 192 and 512 px PNGs have rounded corners. `icon-maskable-512.png` is full bleed, with the mark inside the maskable safe zone. `apple-touch-icon.png` (180 px, full bleed) is for iOS. `icon.svg` is also the favicon. |
-| A-4 | No service worker and no offline mode, because every action needs Spotify. Chrome no longer requires a service worker to offer installation. |
+| A-4 | No offline mode, because every action needs Spotify. The only service worker is the one that keeps files up to date (U-1). |
+
+### 4.8 Updates
+
+| ID | Requirement |
+|---|---|
+| U-1 | **Latest files on every load.** `sw.js` is a service worker that revalidates every same-origin request with the server (`cache: "no-cache"`) instead of using the browser cache, so each page load gets the files that are deployed. Unchanged files come back as a quick 304. It is registered with `updateViaCache: "none"`, so the browser checks `sw.js` itself on every load. It caches nothing for offline use. |
+| U-2 | **New version while the app is open.** `version.js` holds `APP_VERSION`, shown in Settings → About. Each release changes it. The app loads the deployed `version.js` again every 30 minutes and whenever the page becomes visible. When it differs, a banner offers to reload ("Reload between two stoppages"). The app never reloads by itself, so a game is never cut. |
 
 ## 5. Data model
 
@@ -307,6 +314,7 @@ All files are at the repository root.
 | `i18n.js` | Dictionaries (`en`, `fr`), language detection, `t()` and DOM translation helpers. |
 | `ui.js` | Rendering of views and components, toasts and dialogs. |
 | `manifest.json`, `icon.svg`, `icon-192.png`, `icon-512.png`, `icon-maskable-512.png`, `apple-touch-icon.png` | Installation (§4.7). |
+| `sw.js`, `version.js` | Updates (§4.8): the service worker, and the app version. |
 | `README.md` | Repository home page: overview, user setup guide, privacy notes, development quick start. |
 | `SPEC.md` | This document. |
 | `CLAUDE.md` | Guidance for AI-assisted development sessions. |
@@ -384,6 +392,7 @@ All files are at the repository root.
 
 | Version | Date | Changes |
 |---|---|---|
+| 1.1 | 2026-10-20 | Added updates (§4.8, U-1 and U-2): a service worker that revalidates every file on each load, and a banner when a newer version is deployed while the app is open. `APP_VERSION` moved to `version.js`. A-4 and §6 updated. |
 | 1.0 | 2026-10-20 | Version 1.0: Phase 1 and Phase 2 are complete, and the app version is 1.0. No functional change. |
 | 0.18 | 2026-10-20 | A x button resets the start to 0:00, like the one that removes the end (P-4). |
 | 0.17 | 2026-10-20 | Added an optional marked end per track (P-10) with Mark end, and renamed Mark here to Mark start. Removed the ±1 s and ±5 s nudge buttons from the editor (P-4). Preview stops at the end (P-5), R-3, R-5 and P-7 updated. Playlist schema version 2 (§5.4). |

@@ -67,7 +67,11 @@ python -m http.server 8000 --bind 127.0.0.1   # use python3 on macOS and Linux
   - Install Python 3 if needed. On Windows: `winget install Python.Python.3.12`, then open a new terminal.
   - Register the local redirect URI from SPEC §3.1 in the Spotify dashboard (app → Settings → Redirect URIs).
 - **Claude Code desktop:** `.claude/launch.json` defines the same server under the name `hockey-dj`, so Claude can start it and open the app in the built-in browser.
-- **Deploy:** commit or merge to `main`. GitHub Pages republishes within a few minutes. Hard-refresh, or use a private window, to bypass the cache.
+- **Release a new version:**
+  1. Change `APP_VERSION` in `version.js` (for example `1.0` → `1.1`). Without this step, open apps show no update banner (SPEC U-2).
+  2. Commit and push to `main`. GitHub Pages republishes within a few minutes (watch the repository's Actions tab).
+  3. Users get the new files the next time they open or reload the app (U-1), without clearing the cache. Apps that are already open show the update banner within 30 minutes, or as soon as they come back to the foreground.
+- **Commit email:** use the GitHub noreply address, otherwise GitHub rejects the push (GH007): `git config user.email "308231901+north-lab-kev@users.noreply.github.com"`.
 
 ## Manual test checklist
 
@@ -97,6 +101,7 @@ There are no automated tests. Before each release, run these scenarios on a phon
 14. **Theme:** on Auto, switch the device between light and dark while the app is open; the app follows live. Force Light, then Dark, and reload: the choice is kept, with no flash of the other theme. (S-7, §7)
 15. **Browsers:** every browser listed in SPEC §8.
 16. **Installation:** install from Chrome or Edge on desktop and from Add to Home Screen on Android and iOS. Check the name and icon, that it opens full screen, and that connecting to Spotify works inside the installed app. (A-1 to A-4)
+17. **Updates:** deploy a change with a new `APP_VERSION`. A normal reload shows it, without clearing the cache. An app left open shows the banner when it comes back to the foreground, and Reload loads the new version. (U-1, U-2)
 
 ## Current status
 
@@ -112,3 +117,4 @@ Version 1.0, deployed on GitHub Pages and tested by the owner with the real Spot
 - Settings: language, theme, Spotify connection, device, play order and the two R-2 thresholds (§4.5).
 - English and French (§4.6), light and dark themes (§7).
 - Installation as an app (§4.7).
+- Updates: latest files on every load, and an update banner while open (§4.8).

@@ -887,6 +887,13 @@ function renderView(state, actions) {
   }
 }
 
+/** Banner shown when a newer version is deployed while the app is open (U-2). */
+function updateBanner(state, actions) {
+  return h('div', { class: 'update-banner', role: 'status' },
+    h('span', { class: 'update-banner__text' }, t('update.available', { version: state.updateVersion })),
+    button({ label: t('update.reload'), iconName: 'refresh', variant: 'primary', extraClass: 'btn--sm', onClick: actions.reloadApp, focusKey: 'update-reload' }));
+}
+
 /** Renders the whole app and restores keyboard focus to the same control. */
 export function renderApp(root, state, actions) {
   const active = document.activeElement;
@@ -894,6 +901,7 @@ export function renderApp(root, state, actions) {
 
   const children = [
     renderHeader(state, actions),
+    state.updateVersion ? updateBanner(state, actions) : null,
     h('main', { class: `main main--${state.view}`, id: 'main' }, renderView(state, actions)),
   ];
   if (state.connected) children.push(renderNav(state, actions, 'bottom'));

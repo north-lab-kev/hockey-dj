@@ -1954,6 +1954,22 @@ a {
   font-size: 0.8125rem;
 }
 
+/* ---------- Update banner (U-2) ---------- */
+
+.update-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 14px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--crease);
+  color: var(--ink);
+  font-size: 0.9375rem;
+  text-align: center;
+}
+
 /* ---------- Splash ---------- */
 
 .splash {
