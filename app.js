@@ -205,7 +205,7 @@ function gameKey() {
   const groups = describeGroups().map((group) => (group.empty
     ? `${group.playlist.id}:empty`
     : `${group.playlist.id}:${group.status}:${group.index}:${group.busy}:${group.thenTrack.id}`));
-  return `${state.playback.busy}|${groups.join('|')}`;
+  return groups.join('|');
 }
 
 function render() {
@@ -785,7 +785,7 @@ function planPlay(playlist, now = Date.now()) {
 function describeGroup(playlist, now = Date.now()) {
   const playback = state.playback;
   const own = playback.mode === 'game' && playback.playlistId === playlist.id;
-  const base = { playlist, busy: own && playback.busy, locked: playback.busy };
+  const base = { playlist, busy: own && playback.busy };
   if (!playlist.tracks.length) return { ...base, empty: true, playing: false };
   const tracks = playlist.tracks;
   const playing = own && playback.status === 'playing';

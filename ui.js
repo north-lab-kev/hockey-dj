@@ -439,13 +439,13 @@ function puckButton(group, actions) {
 function groupLine(group, actions) {
   const id = group.playlist.id;
   const name = group.playlist.name;
-  const disabled = group.locked || group.empty;
+  // Stays enabled while a request runs, so it doesn't flicker: step() ignores those taps (G-3).
+  const disabled = group.empty;
   return h('div', { class: 'group__line' },
     button({ iconName: 'prev', variant: 'secondary', extraClass: 'btn--icon', ariaLabel: t('game.previousIn', { name }), onClick: () => actions.prev(id), disabled, focusKey: `prev-${id}` }),
     group.empty
       ? h('p', { class: 'group__tracks' }, h('span', { class: 'group__label' }, t('game.groupEmpty')))
-      : h('p', { class: 'group__tracks', title: `${group.track.name}
-${t('game.thenTrack', { name: group.thenTrack.name })}` },
+      : h('p', { class: 'group__tracks', title: `${group.track.name}\n${t('game.thenTrack', { name: group.thenTrack.name })}` },
         h('span', { class: 'group__label' }, lineLabel(group)),
         h('span', { class: 'group__title' }, group.track.name),
         h('span', { class: 'group__then' }, t('game.thenTrack', { name: group.thenTrack.name }))),
