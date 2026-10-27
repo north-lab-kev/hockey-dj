@@ -1064,7 +1064,10 @@ a {
   cursor: progress;
 }
 
-.puck.is-busy .puck__ring {
+/* The circles spin inside the ring, so the spinning never pushes past the page edge (no scrollbar). */
+.puck.is-busy .puck__ring circle {
+  transform-box: view-box;
+  transform-origin: center;
   animation: ring-spin 1.1s linear infinite;
 }
 
@@ -1075,10 +1078,10 @@ a {
 
 @keyframes ring-spin {
   from {
-    transform: rotate(-90deg);
+    transform: rotate(0deg);
   }
   to {
-    transform: rotate(270deg);
+    transform: rotate(360deg);
   }
 }
 
