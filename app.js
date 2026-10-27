@@ -28,6 +28,7 @@ const SEARCH_DEBOUNCE_MS = 350;
 const MIN_TAIL_MS = 1_000; // P-7, P-10: a start must stay at least this long before the end
 const START_STEP_MS = 100;
 const THEME_COLORS = { light: '#EEF3F7', dark: '#0B1424' };
+const KEY_BUTTONS = ['1', '2', '3', '4', '5']; // G-8: keys of game buttons 1 to 5
 
 const ADVANCE_SETTINGS = Object.freeze({
   played: { key: 'advanceAfterPlayedMs', defaultMs: ADVANCE_AFTER_PLAYED_MS, minMs: ADVANCE_PLAYED_MIN_MS, maxMs: ADVANCE_PLAYED_MAX_MS },
@@ -40,6 +41,7 @@ function idlePlayback() {
   return {
     status: 'stopped',
     mode: null,
+    playlistId: null,
     busy: false,
     index: 0,
     uri: null,
@@ -65,7 +67,7 @@ const state = {
   profile: null,
   settings: store.getSettings(),
   playlists: store.getPlaylists(),
-  game: store.getGame(),
+  games: store.getGames(),
   devices: [],
   devicesLoading: false,
   devicesLoaded: false,
@@ -97,12 +99,12 @@ const actions = {
   refreshDevices: () => refreshDevices(),
   selectDevice,
   openDevicePicker,
-  playStop,
-  prev: () => step(-1),
-  next: () => step(1),
-  selectTrack: (index) => selectTrack(index, describeGame()?.shuffle),
-  setActivePlaylist,
-  describeGame,
+  pressButton,
+  prev: (playlistId) => step(playlistId, -1),
+  next: (playlistId) => step(playlistId, 1),
+  describeGroups,
+  playingPlaylistId,
+  assignButton,
   previewPosition: () => estimateProgress(),
   createPlaylist,
   openPlaylist,
@@ -160,10 +162,6 @@ function playbackEnd(playback) {
   return playback.endMs ?? playback.durationMs;
 }
 
-function activePlaylist() {
-  return state.playlists.find((playlist) => playlist.id === state.settings.activePlaylistId) || null;
-}
-
 function findPlaylist(id) {
   return state.playlists.find((playlist) => playlist.id === id) || null;
 }
@@ -176,23 +174,22 @@ function isPreviewing() {
   return state.playback.mode === 'preview' && state.playback.status === 'playing';
 }
 
-/** Estimated position of the track that is playing now, in milliseconds. */
-function estimateProgress(now = Date.now()) {
+/** The playlist whose game music plays, or is starting or stopping, or null (G-2). */
+function playingPlaylistId() {
   const playback = state.playback;
+  return playback.mode === 'game' && (playback.status === 'playing' || playback.busy) ? playback.playlistId : null;
+}
+
+/** Estimated position of the track that is playing now, in milliseconds. */
+function estimateProgress(now = Date.now(), playback = state.playback) {
   if (playback.status !== 'playing' || playback.busy) return playback.positionMs;
   const position = playback.positionMs + (now - playback.syncedAt);
   return playback.durationMs ? Math.min(position, playback.durationMs) : position;
 }
 
-/** Saves the game state, after making its shuffle passes match the active playlist (R-11 to R-14). */
-function saveGame(game, options) {
-  state.game = withShuffle(game, options);
-  store.setGame(state.game);
-}
-
 function savePlaylists() {
   if (!store.savePlaylists(state.playlists)) ui.toast(t('errors.STORAGE'), 'error');
-  saveGame(state.game);
+  syncGames();
 }
 
 function touch(playlist) {
@@ -203,15 +200,17 @@ function touch(playlist) {
 
 let lastGameKey = '';
 
+/** Changes when a group needs more than its live parts updated (status, track or busy state). */
 function gameKey() {
-  const descriptor = describeGame();
-  return descriptor ? `${descriptor.status}:${descriptor.index}:${descriptor.busy}` : 'none';
+  const groups = describeGroups().map((group) => (group.empty
+    ? `${group.playlist.id}:empty`
+    : `${group.playlist.id}:${group.status}:${group.index}:${group.busy}:${group.lineTrack.id}`));
+  return `${state.playback.busy}|${groups.join('|')}`;
 }
 
 function render() {
   ui.renderApp(root, state, actions);
   lastGameKey = gameKey();
-  if (state.view === 'game') ui.keepCurrentInView(root);
   updateWakeLock();
 }
 
@@ -223,7 +222,7 @@ function tick() {
   }
   if (state.view === 'game') {
     if (gameKey() !== lastGameKey) render();
-    else ui.updateLive(root, describeGame());
+    else ui.updateLive(root, describeGroups());
   } else if (state.view === 'playlists' && isPreviewing()) {
     ui.updatePreviewTime(root, estimateProgress());
   }
@@ -601,35 +600,45 @@ function samePass(pass, ids) {
   return isPass(pass) && pass.length === ids.length && ids.every((id) => pass.includes(id));
 }
 
+/** Makes saved passes match the playlist's songs. New songs go after `currentId` in the current pass (R-14). */
+function repairPasses(shuffle, ids, currentId) {
+  const order = repairPass(shuffle.order, ids, (kept) => kept.indexOf(currentId) + 1);
+  const upcoming = isPass(shuffle.upcoming) ? repairPass(shuffle.upcoming, ids, () => 1) : shuffled(ids);
+  return {
+    past: samePass(shuffle.past, ids) ? shuffle.past : null,
+    order,
+    upcoming: avoidRepeat(upcoming, order[order.length - 1]),
+  };
+}
+
 /**
- * Returns the game state with valid shuffle passes, or `shuffle: null` when shuffle is off (R-11 to R-14).
+ * Returns a playlist's game state with valid shuffle passes, or `shuffle: null` when shuffle is off (R-11 to R-14),
+ * and with its prepared track dropped when that song left the playlist (R-15).
  * A new game starts on a random track, unless `keepCurrent` is set.
  */
-function withShuffle(game, { keepCurrent = false } = {}) {
-  const tracks = activePlaylist()?.tracks || [];
-  if (!state.settings.shuffle || !tracks.length) return { ...game, shuffle: null };
+function withShuffle(game, playlist, { keepCurrent = false } = {}) {
+  const tracks = playlist.tracks;
   const ids = tracks.map((track) => track.id);
+  const prepared = game.prepared && ids.includes(game.prepared.trackId) ? game.prepared : null;
+  if (!state.settings.shuffle || !tracks.length) {
+    return { ...game, shuffle: null, prepared: prepared && { trackId: prepared.trackId, shuffle: null } };
+  }
+  const preparedShuffle = isPass(prepared?.shuffle?.order) ? repairPasses(prepared.shuffle, ids, prepared.trackId) : null;
+  const keptPrepared = prepared && { trackId: prepared.trackId, shuffle: preparedShuffle };
   const index = wrap(game.currentIndex, tracks.length);
   const current = game.shuffle;
   if (!current || !isPass(current.order)) {
-    const fresh = !keepCurrent && state.playback.mode !== 'game' && !game.stoppedAt && !game.playedMs && game.positionMs == null;
+    const fresh = !keepCurrent && playingPlaylistId() !== playlist.id
+      && !game.stoppedAt && !game.playedMs && game.positionMs == null;
     const order = fresh ? shuffled(ids) : [ids[index], ...shuffled(ids.filter((id) => id !== ids[index]))];
     return {
       ...game,
       currentIndex: fresh ? ids.indexOf(order[0]) : index,
       shuffle: { past: null, order, upcoming: avoidRepeat(shuffled(ids), order[order.length - 1]) },
+      prepared: keptPrepared,
     };
   }
-  const order = repairPass(current.order, ids, (kept) => kept.indexOf(ids[index]) + 1);
-  const upcoming = isPass(current.upcoming) ? repairPass(current.upcoming, ids, () => 1) : shuffled(ids);
-  return {
-    ...game,
-    shuffle: {
-      past: samePass(current.past, ids) ? current.past : null,
-      order,
-      upcoming: avoidRepeat(upcoming, order[order.length - 1]),
-    },
-  };
+  return { ...game, shuffle: repairPasses(current, ids, ids[index]), prepared: keptPrepared };
 }
 
 /**
@@ -637,8 +646,8 @@ function withShuffle(game, { keepCurrent = false } = {}) {
  * Returns the playlist index and the shuffle passes after the move. A new pass gets
  * its own `upcoming` pass when the game state is saved.
  */
-function moveFrom(index, delta, shuffle = state.game.shuffle) {
-  const tracks = activePlaylist().tracks;
+function moveFrom(playlist, index, delta, shuffle) {
+  const tracks = playlist.tracks;
   if (!shuffle) return { index: wrap(index + delta, tracks.length), shuffle: null };
   const indexOf = (id) => Math.max(0, tracks.findIndex((track) => track.id === id));
   const { past, order } = shuffle;
@@ -649,20 +658,119 @@ function moveFrom(index, delta, shuffle = state.game.shuffle) {
   return { index: indexOf(order[wrap(target, order.length)]), shuffle };
 }
 
-/** Turns shuffle on or off (S-9). The current track stays where it is. */
+/** Turns shuffle on or off for every playlist (S-9). Each current track stays where it is. */
 function setShuffle(enabled) {
   state.settings = store.updateSettings({ shuffle: enabled });
-  saveGame({ ...state.game, shuffle: null }, { keepCurrent: true });
+  for (const playlist of state.playlists) {
+    const game = state.games[playlist.id];
+    if (!game) continue;
+    const prepared = game.prepared && { trackId: game.prepared.trackId, shuffle: null };
+    saveGame(playlist, { ...game, shuffle: null, prepared }, { keepCurrent: true });
+  }
   render();
 }
 
-/** What the next Play will do (R-2, R-3, R-9). */
-function planPlay(now = Date.now()) {
-  const tracks = activePlaylist().tracks;
-  const game = state.game;
+/* ---------- Game buttons (SPEC §4.2, G-10, P-11) ---------- */
+
+/** The playlists that have a game button, in button order (G-10). */
+function groupPlaylists() {
+  return state.settings.buttons
+    .map((id, slot) => ({ slot, playlist: findPlaylist(id) }))
+    .filter((entry) => entry.playlist);
+}
+
+function hasButton(playlistId) {
+  return state.settings.buttons.includes(playlistId);
+}
+
+/** The playlist of the last-used group (G-8): the one that plays, the last one used, or the first group. */
+function lastGroupPlaylist() {
+  const playingId = playingPlaylistId();
+  if (playingId) return findPlaylist(playingId);
+  const groups = groupPlaylists();
+  return (groups.find((entry) => entry.playlist.id === state.settings.activePlaylistId) || groups[0])?.playlist || null;
+}
+
+function markUsed(playlistId) {
+  if (state.settings.activePlaylistId !== playlistId) state.settings = store.updateSettings({ activePlaylistId: playlistId });
+}
+
+/** Frees the buttons of playlists that no longer exist. */
+function ensureButtons() {
+  const buttons = state.settings.buttons.map((id) => (findPlaylist(id) ? id : null));
+  if (buttons.some((id, slot) => id !== state.settings.buttons[slot])) state.settings = store.updateSettings({ buttons });
+}
+
+/**
+ * Gives a playlist a game button (slot 0 to 4), or none (null). A button that another
+ * playlist holds is taken from it. The playlist that plays keeps its button (P-11).
+ */
+function assignButton(playlistId, slot) {
+  const playlist = findPlaylist(playlistId);
+  if (!playlist) return;
+  const playingId = playingPlaylistId();
+  const holder = slot == null ? null : state.settings.buttons[slot];
+  if (holder === playlistId) return;
+  if (playingId && (playingId === playlistId || playingId === holder)) {
+    ui.toast(t('editor.toast.buttonPlaying'), 'error');
+    return;
+  }
+  const buttons = state.settings.buttons.map((id) => (id === playlistId ? null : id));
+  if (slot != null) buttons[slot] = playlistId;
+  state.settings = store.updateSettings({ buttons });
+  syncGames();
+  render();
+}
+
+/* ---------- Game state (SPEC §4.2.1, R-10) ---------- */
+
+/** The saved game state of a playlist. */
+function gameOf(playlist) {
+  return state.games[playlist.id] || store.defaultGame();
+}
+
+/** Saves a playlist's game state, after making its shuffle passes match its songs (R-11 to R-15). */
+function saveGame(playlist, game, options) {
+  state.games = { ...state.games, [playlist.id]: withShuffle(game, playlist, options) };
+  store.setGames(state.games);
+}
+
+/**
+ * Repairs the game state of every playlist that has one or has a button, so that its
+ * order is stable, and drops the states of deleted playlists (R-10, R-14).
+ */
+function syncGames() {
+  const games = {};
+  for (const playlist of state.playlists) {
+    const game = state.games[playlist.id];
+    if (game || hasButton(playlist.id)) games[playlist.id] = withShuffle(game || store.defaultGame(), playlist);
+  }
+  state.games = games;
+  store.setGames(games);
+}
+
+function preparedIndex(playlist, game) {
+  return game.prepared ? playlist.tracks.findIndex((track) => track.id === game.prepared.trackId) : -1;
+}
+
+/** The track after the one at `index`: the prepared track (R-15), or the next one (R-5, R-6, R-12). */
+function followingTrack(playlist, index, game = gameOf(playlist)) {
+  const prepared = preparedIndex(playlist, game);
+  if (prepared >= 0) return { index: prepared, shuffle: game.prepared.shuffle };
+  return moveFrom(playlist, index, 1, game.shuffle);
+}
+
+/** What the next Play of a playlist will do (R-2, R-3, R-9, R-15). */
+function planPlay(playlist, now = Date.now()) {
+  const tracks = playlist.tracks;
+  const game = gameOf(playlist);
+  const prepared = preparedIndex(playlist, game);
+  if (prepared >= 0) {
+    return { index: prepared, positionMs: tracks[prepared].startMs, status: 'next', shuffle: game.prepared.shuffle };
+  }
   const index = wrap(game.currentIndex, tracks.length);
   if (shouldAdvance(game, now)) {
-    const next = moveFrom(index, 1);
+    const next = moveFrom(playlist, index, 1, game.shuffle);
     return { index: next.index, positionMs: tracks[next.index].startMs, status: 'next', shuffle: next.shuffle };
   }
   const track = tracks[index];
@@ -670,64 +778,93 @@ function planPlay(now = Date.now()) {
   return { index, positionMs, status: game.stoppedAt ? 'resume' : 'start', shuffle: game.shuffle };
 }
 
-/** Describes the Game screen: the track Play will start (or is playing) and its status. */
-function describeGame(now = Date.now()) {
-  const playlist = activePlaylist();
-  if (!playlist || !playlist.tracks.length) return null;
-  const tracks = playlist.tracks;
+/**
+ * Describes one group of the Game screen (G-4): what its button plays or will play,
+ * and the track on the line under it.
+ */
+function describeGroup(playlist, now = Date.now()) {
   const playback = state.playback;
-  let plan;
-  if (playback.mode === 'game' && playback.status === 'playing') {
-    plan = { index: wrap(playback.index, tracks.length), positionMs: estimateProgress(now), status: 'playing', shuffle: state.game.shuffle };
-  } else {
-    plan = planPlay(now);
-  }
-  const track = tracks[plan.index];
-  const thenIndex = moveFrom(plan.index, 1, plan.shuffle).index;
-  const queue = plan.shuffle
-    ? plan.shuffle.order.map((id) => tracks.findIndex((candidate) => candidate.id === id)).filter((index) => index >= 0)
-    : tracks.map((_, index) => index);
+  const own = playback.mode === 'game' && playback.playlistId === playlist.id;
+  const base = { playlist, busy: own && playback.busy, locked: playback.busy };
+  if (!playlist.tracks.length) return { ...base, empty: true, playing: false };
+  const tracks = playlist.tracks;
+  const playing = own && playback.status === 'playing';
+  const plan = playing
+    ? { index: wrap(playback.index, tracks.length), positionMs: estimateProgress(now), status: 'playing', shuffle: gameOf(playlist).shuffle }
+    : planPlay(playlist, now);
+  const lineIndex = playing ? followingTrack(playlist, plan.index).index : plan.index;
   return {
-    playlist,
-    playing: plan.status === 'playing',
-    busy: playback.busy,
+    ...base,
+    empty: false,
+    playing,
     index: plan.index,
     status: plan.status,
     positionMs: plan.positionMs,
-    durationMs: playback.mode === 'game' && plan.status === 'playing' ? playbackEnd(playback) : endOf(track),
-    track,
-    thenTrack: tracks[thenIndex],
-    queue,
+    durationMs: playing ? playbackEnd(playback) : endOf(tracks[plan.index]),
     shuffle: plan.shuffle,
+    lineTrack: tracks[lineIndex],
   };
 }
 
-async function playStop() {
+/** Describes every group of the Game screen, in button order. */
+function describeGroups(now = Date.now()) {
+  return groupPlaylists().map(({ slot, playlist }) => ({ slot, ...describeGroup(playlist, now) }));
+}
+
+/* ---------- Play and Stop (SPEC §4.2.1, G-2, G-6) ---------- */
+
+/** A tap on a game button: Stop when its playlist plays, otherwise Play, switching from the playlist that plays (G-6). */
+async function pressButton(playlistId) {
   if (state.playback.busy) return;
-  if (isGamePlaying()) {
+  const playlist = findPlaylist(playlistId);
+  if (!playlist) return;
+  markUsed(playlistId);
+  if (isGamePlaying() && state.playback.playlistId === playlistId) {
     await stopGame();
     return;
   }
-  unlockBrowserAudio();
-  const playlist = activePlaylist();
-  if (!playlist || !playlist.tracks.length) {
+  if (!playlist.tracks.length) {
     ui.toast(t('game.toast.empty'), 'error');
+    render();
     return;
   }
+  unlockBrowserAudio();
+  const previous = isGamePlaying() ? state.playback : null;
   if (state.playback.mode === 'preview') state.playback = idlePlayback();
-  const plan = planPlay();
-  await startGameTrack(plan.index, plan.positionMs, { resetPlayed: plan.status === 'next', shuffle: plan.shuffle });
+  const plan = planPlay(playlist);
+  await startGameTrack(playlist, plan.index, plan.positionMs, { resetPlayed: plan.status === 'next', shuffle: plan.shuffle, previous });
 }
 
-/** Starts a track of the active playlist. Returns true on success. */
-async function startGameTrack(index, positionMs, { resetPlayed, shuffle = state.game.shuffle }) {
-  const track = activePlaylist().tracks[index];
+/** Where the game track that is playing stops, and how long it played since its last start (R-1). */
+function stopValues(playback, now) {
+  return {
+    positionMs: clamp(estimateProgress(now, playback), 0, Math.max(0, playbackEnd(playback) - MIN_TAIL_MS)),
+    segmentMs: Math.max(0, now - playback.segmentStartedAt),
+  };
+}
+
+/** Saves a Stop in a playlist's game state (R-1). */
+function saveStop(playlist, { positionMs, segmentMs }, now) {
+  const game = gameOf(playlist);
+  saveGame(playlist, { ...game, positionMs, playedMs: game.playedMs + segmentMs, stoppedAt: new Date(now).toISOString() });
+}
+
+/**
+ * Starts a track of a playlist. Returns true on success.
+ * `previous` is the playback of another playlist that this start replaces (G-6): it is
+ * saved as a Stop on success, and keeps playing if the start fails.
+ */
+async function startGameTrack(playlist, index, positionMs, { resetPlayed, shuffle = gameOf(playlist).shuffle, previous = null }) {
+  const track = playlist.tracks[index];
+  const switchedAt = Date.now();
+  const left = previous && { playlist: findPlaylist(previous.playlistId), values: stopValues(previous, switchedAt) };
   stopLoops();
   state.playback = {
     ...idlePlayback(),
     status: 'playing',
     mode: 'game',
     busy: true,
+    playlistId: playlist.id,
     index,
     uri: track.uri,
     durationMs: track.durationMs,
@@ -739,15 +876,18 @@ async function startGameTrack(index, positionMs, { resetPlayed, shuffle = state.
     const deviceId = await ensureDevice();
     await playOnDevice(track.uri, positionMs, deviceId);
   } catch (error) {
-    state.playback = idlePlayback();
+    state.playback = previous || idlePlayback();
+    if (previous) startLoops();
     render();
     handleError(error);
     return false;
   }
+  if (left?.playlist) saveStop(left.playlist, left.values, switchedAt);
   const now = Date.now();
   state.playback = { ...state.playback, busy: false, syncedAt: now, segmentStartedAt: now, ignorePollUntil: now + POLL_GRACE_MS };
-  const sameTrack = index === state.game.currentIndex && !resetPlayed;
-  saveGame({ currentIndex: index, positionMs, playedMs: sameTrack ? state.game.playedMs : 0, stoppedAt: null, shuffle });
+  const game = gameOf(playlist);
+  const sameTrack = index === game.currentIndex && !resetPlayed;
+  saveGame(playlist, { currentIndex: index, positionMs, playedMs: sameTrack ? game.playedMs : 0, stoppedAt: null, shuffle, prepared: null });
   startLoops();
   render();
   return true;
@@ -756,9 +896,9 @@ async function startGameTrack(index, positionMs, { resetPlayed, shuffle = state.
 /** Stop (R-1). `external` means playback was already paused from Spotify. */
 async function stopGame({ external = false } = {}) {
   const playback = state.playback;
+  const playlist = findPlaylist(playback.playlistId);
   const now = Date.now();
-  const positionMs = clamp(estimateProgress(now), 0, Math.max(0, playbackEnd(playback) - MIN_TAIL_MS));
-  const segmentMs = Math.max(0, now - playback.segmentStartedAt);
+  const values = stopValues(playback, now);
   stopLoops();
   if (!external) {
     state.playback = { ...playback, status: 'stopped', busy: true };
@@ -773,62 +913,44 @@ async function stopGame({ external = false } = {}) {
       return;
     }
   }
-  saveGame({
-    ...state.game,
-    positionMs,
-    playedMs: state.game.playedMs + segmentMs,
-    stoppedAt: new Date(now).toISOString(),
-  });
+  if (playlist) saveStop(playlist, values, now);
   state.playback = idlePlayback();
   render();
 }
 
-/** End of track (R-5): play the next track of the playlist at its start. */
+/** End of track (R-5): play the prepared track, or the next one, at its start. */
 async function continueToNext() {
   if (!isGamePlaying() || state.playback.busy) return;
-  const tracks = activePlaylist()?.tracks;
-  if (!tracks?.length) return;
-  const { index: next, shuffle } = moveFrom(state.playback.index, 1);
-  const started = await startGameTrack(next, tracks[next].startMs, { resetPlayed: true, shuffle });
+  const playlist = findPlaylist(state.playback.playlistId);
+  if (!playlist?.tracks.length) return;
+  const { index: next, shuffle } = followingTrack(playlist, state.playback.index);
+  const started = await startGameTrack(playlist, next, playlist.tracks[next].startMs, { resetPlayed: true, shuffle });
   if (!started) {
-    saveGame({ currentIndex: next, positionMs: null, playedMs: 0, stoppedAt: null, shuffle });
+    saveGame(playlist, { currentIndex: next, positionMs: null, playedMs: 0, stoppedAt: null, shuffle, prepared: null });
     render();
   }
 }
 
-/** Explicit selection (R-7). In shuffle mode, play continues in the shuffled order from the selected track (R-13). */
-async function selectTrack(index, shuffle = state.game.shuffle) {
-  const playlist = activePlaylist();
-  if (!playlist?.tracks.length || state.playback.busy) return;
-  const target = wrap(index, playlist.tracks.length);
-  if (isGamePlaying()) {
-    unlockBrowserAudio();
-    await startGameTrack(target, playlist.tracks[target].startMs, { resetPlayed: true, shuffle });
-    return;
+/**
+ * Previous or Next of a group (R-7, R-13, R-15). While its playlist plays, it moves the
+ * prepared track and the current one keeps playing. Otherwise it selects the track the next Play starts.
+ */
+function step(playlistId, delta) {
+  if (state.playback.busy) return;
+  const playlist = findPlaylist(playlistId);
+  if (!playlist?.tracks.length) return;
+  markUsed(playlistId);
+  const group = describeGroup(playlist);
+  const game = gameOf(playlist);
+  if (group.playing) {
+    const following = followingTrack(playlist, group.index, game);
+    const move = moveFrom(playlist, following.index, delta, following.shuffle);
+    saveGame(playlist, { ...game, prepared: { trackId: playlist.tracks[move.index].id, shuffle: move.shuffle } });
+  } else {
+    const move = moveFrom(playlist, group.index, delta, group.shuffle);
+    saveGame(playlist, { ...game, currentIndex: move.index, positionMs: null, playedMs: 0, stoppedAt: null, shuffle: move.shuffle, prepared: null });
   }
-  saveGame({ currentIndex: target, positionMs: null, playedMs: 0, stoppedAt: null, shuffle });
   render();
-}
-
-function step(delta) {
-  const descriptor = describeGame();
-  if (!descriptor) return;
-  const move = moveFrom(descriptor.index, delta, descriptor.shuffle);
-  selectTrack(move.index, move.shuffle);
-}
-
-function setActivePlaylist(id) {
-  if (isGamePlaying() || state.playback.busy || !findPlaylist(id)) return;
-  state.settings = store.updateSettings({ activePlaylistId: id });
-  saveGame(store.defaultGame());
-  render();
-}
-
-function ensureActivePlaylist() {
-  if (activePlaylist()) return;
-  const first = state.playlists[0];
-  state.settings = store.updateSettings({ activePlaylistId: first ? first.id : null });
-  saveGame(store.defaultGame());
 }
 
 /* ---------- Playback loops (SPEC §3.4) ---------- */
@@ -910,28 +1032,30 @@ async function pollPlayback() {
 
 /** After a reload, picks up a track that is still playing (R-10). */
 async function restorePlayback() {
-  const playlist = activePlaylist();
-  if (!playlist?.tracks.length || state.game.stoppedAt || state.playback.mode) return;
+  const playlist = findPlaylist(state.settings.activePlaylistId);
+  if (!playlist?.tracks.length || !hasButton(playlist.id) || gameOf(playlist).stoppedAt || state.playback.mode) return;
   let remote;
   try {
     remote = await spotify.getPlaybackState();
   } catch {
     return;
   }
-  const index = wrap(state.game.currentIndex, playlist.tracks.length);
+  const game = gameOf(playlist);
+  const index = wrap(game.currentIndex, playlist.tracks.length);
   const track = playlist.tracks[index];
   if (!remote?.is_playing || remote.item?.uri !== track.uri || state.playback.mode) return;
   const now = Date.now();
-  const startedFrom = state.game.positionMs ?? track.startMs;
-  saveGame({
-    ...state.game,
+  const startedFrom = game.positionMs ?? track.startMs;
+  saveGame(playlist, {
+    ...game,
     positionMs: remote.progress_ms,
-    playedMs: state.game.playedMs + Math.max(0, remote.progress_ms - startedFrom),
+    playedMs: game.playedMs + Math.max(0, remote.progress_ms - startedFrom),
   });
   state.playback = {
     ...idlePlayback(),
     status: 'playing',
     mode: 'game',
+    playlistId: playlist.id,
     index,
     uri: track.uri,
     durationMs: remote.item.duration_ms || track.durationMs,
@@ -981,15 +1105,25 @@ function bindGlobalEvents() {
   document.addEventListener('keydown', (event) => {
     if (state.view !== 'game' || event.altKey || event.ctrlKey || event.metaKey) return;
     if (document.querySelector('dialog[open]') || isTypingTarget(event.target)) return;
+    const button = KEY_BUTTONS.indexOf(event.key);
+    if (button >= 0) {
+      const playlistId = state.settings.buttons[button];
+      if (!playlistId || !findPlaylist(playlistId)) return;
+      event.preventDefault();
+      if (!event.repeat) pressButton(playlistId);
+      return;
+    }
+    const playlist = lastGroupPlaylist();
+    if (!playlist) return;
     if (event.code === 'Space') {
       event.preventDefault();
-      if (!event.repeat) playStop();
+      if (!event.repeat) pressButton(playlist.id);
     } else if (event.key === 'ArrowRight') {
       event.preventDefault();
-      step(1);
+      step(playlist.id, 1);
     } else if (event.key === 'ArrowLeft') {
       event.preventDefault();
-      step(-1);
+      step(playlist.id, -1);
     }
   });
   // Stops a focused button from also reacting to the Space key on release.
@@ -1041,7 +1175,7 @@ async function createPlaylist() {
   const playlist = { id: store.newId(), name, createdAt: now, updatedAt: now, tracks: [] };
   state.playlists.push(playlist);
   savePlaylists();
-  if (!activePlaylist()) ensureActivePlaylist();
+  if (!groupPlaylists().length) assignButton(playlist.id, 0);
   ui.toast(t('playlists.toast.created', { name }), 'success');
   openPlaylist(playlist.id);
 }
@@ -1096,8 +1230,7 @@ function duplicatePlaylist(id) {
 async function deletePlaylist(id) {
   const playlist = findPlaylist(id);
   if (!playlist) return;
-  const isActive = playlist.id === state.settings.activePlaylistId;
-  if (isActive && (isGamePlaying() || state.playback.busy)) {
+  if (playingPlaylistId() === id) {
     ui.toast(t('playlists.toast.stopFirst'), 'error');
     return;
   }
@@ -1110,11 +1243,8 @@ async function deletePlaylist(id) {
   if (!confirmed) return;
   stopPreview();
   state.playlists = state.playlists.filter((candidate) => candidate.id !== id);
+  ensureButtons();
   savePlaylists();
-  if (isActive) {
-    state.settings = store.updateSettings({ activePlaylistId: null });
-    ensureActivePlaylist();
-  }
   ui.toast(t('playlists.toast.deleted', { name: playlist.name }));
   closePlaylist();
 }
@@ -1147,7 +1277,6 @@ async function importFile() {
     });
     state.playlists.push(...result.playlists);
     savePlaylists();
-    ensureActivePlaylist();
     render();
     ui.toast(t('import.done', {
       playlists: tn('count.playlists', result.playlists.length),
@@ -1222,7 +1351,6 @@ function addTrack(track) {
   playlist.tracks.push({ ...track, startMs: 0, endMs: null });
   touch(playlist);
   savePlaylists();
-  if (playlist.tracks.length === 1 && !activePlaylist()) ensureActivePlaylist();
   render();
 }
 
@@ -1278,7 +1406,6 @@ async function importSpotifyPlaylist() {
   if (added) {
     touch(playlist);
     savePlaylists();
-    if (!activePlaylist()) ensureActivePlaylist();
   }
   render();
 
@@ -1330,7 +1457,8 @@ function setEndMs(playlistId, index, value) {
   }
   track.endMs = endMs;
   const playback = state.playback;
-  if (playback.mode && playback.uri === track.uri) {
+  const ownerId = playback.mode === 'game' ? playback.playlistId : playback.previewKey?.playlistId;
+  if (playback.mode && ownerId === playlistId && playback.uri === track.uri) {
     // The new end applies to the preview or game track that is playing now.
     playback.endMs = endMs;
     if (isGamePlaying()) scheduleHandoff();
@@ -1457,18 +1585,17 @@ function moveTrack(playlistId, index, delta) {
   };
   if (state.expandedTrack != null) state.expandedTrack = swap(state.expandedTrack);
   if (state.playback.previewKey?.playlistId === playlistId) state.playback.previewKey.index = swap(state.playback.previewKey.index);
-  if (playlistId === state.settings.activePlaylistId) {
-    if (state.playback.mode === 'game') state.playback.index = swap(state.playback.index);
-    saveGame({ ...state.game, currentIndex: swap(state.game.currentIndex) });
-  }
+  if (state.playback.mode === 'game' && state.playback.playlistId === playlistId) state.playback.index = swap(state.playback.index);
+  const game = state.games[playlistId];
+  if (game) saveGame(playlist, { ...game, currentIndex: swap(game.currentIndex) });
   render();
 }
 
 function removeTrack(playlistId, index) {
   const playlist = findPlaylist(playlistId);
   if (!playlist) return;
-  const isActive = playlistId === state.settings.activePlaylistId;
-  if (isActive && state.playback.mode === 'game' && (isGamePlaying() || state.playback.busy) && state.playback.index === index) {
+  const isPlaying = playingPlaylistId() === playlistId;
+  if (isPlaying && state.playback.index === index) {
     ui.toast(t('editor.toast.playingNow'), 'error');
     return;
   }
@@ -1481,8 +1608,10 @@ function removeTrack(playlistId, index) {
   touch(playlist);
   savePlaylists();
   state.expandedTrack = null;
-  if (isActive) {
-    let { currentIndex, positionMs, playedMs, stoppedAt } = state.game;
+  if (state.playback.mode === 'game' && state.playback.playlistId === playlistId && index < state.playback.index) state.playback.index -= 1;
+  const game = state.games[playlistId];
+  if (game) {
+    let { currentIndex, positionMs, playedMs, stoppedAt } = game;
     if (index < currentIndex) currentIndex -= 1;
     else if (index === currentIndex) {
       positionMs = null;
@@ -1490,8 +1619,7 @@ function removeTrack(playlistId, index) {
       stoppedAt = null;
     }
     currentIndex = playlist.tracks.length ? wrap(currentIndex, playlist.tracks.length) : 0;
-    if (state.playback.mode === 'game' && index < state.playback.index) state.playback.index -= 1;
-    saveGame({ ...state.game, currentIndex, positionMs, playedMs, stoppedAt });
+    saveGame(playlist, { ...game, currentIndex, positionMs, playedMs, stoppedAt });
   }
   ui.toast(t('editor.toast.removed', { name: removed.name }));
   render();
@@ -1544,8 +1672,8 @@ async function init() {
 
   registerServiceWorker();
   setInterval(checkForUpdate, UPDATE_CHECK_INTERVAL_MS);
-  ensureActivePlaylist();
-  saveGame(state.game);
+  ensureButtons();
+  syncGames();
   state.view = initialView();
   render();
   setInterval(tick, TICK_MS);

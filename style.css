@@ -654,42 +654,6 @@ a {
   color: var(--red);
 }
 
-.select-field {
-  position: relative;
-  display: block;
-  flex: 1;
-  min-width: 0;
-}
-
-.select {
-  width: 100%;
-  min-height: 48px;
-  padding: 0 44px 0 14px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  background: var(--surface);
-  color: var(--ink);
-  font-weight: 600;
-  text-overflow: ellipsis;
-  -webkit-appearance: none;
-  appearance: none;
-  cursor: pointer;
-}
-
-.select:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.select-field__icon {
-  position: absolute;
-  top: 50%;
-  right: 16px;
-  margin-top: -8px;
-  color: var(--ink-2);
-  pointer-events: none;
-}
-
 .spinner {
   width: 18px;
   height: 18px;
@@ -945,32 +909,64 @@ a {
 
 /* ---------- Game ---------- */
 
+/*
+ * One framed group per game button (G-4). The buttons share the screen height so every
+ * group fits without scrolling (G-1): --count comes from the page, and --cols / --rows
+ * follow the grid of the current width (G-12).
+ */
+.main--game {
+  padding-top: 12px;
+  padding-bottom: calc(var(--nav-h) + var(--safe-bottom) + 12px);
+}
+
 .game {
+  --group-gap: 10px;
+  --group-pad: 8px;
+  --line-h: 52px;
+  --chrome-h: calc(var(--header-h) + var(--nav-h) + var(--safe-top) + var(--safe-bottom) + 24px);
+  --avail-h: calc(100vh - var(--chrome-h));
+  --cols: 1;
+  --rows: var(--count);
+  --size-h: calc((var(--avail-h) - (var(--rows) - 1) * var(--group-gap)) / var(--rows) - var(--line-h) - 2 * var(--group-pad) - 10px);
   display: grid;
-  gap: 16px;
+  grid-template-columns: repeat(var(--cols), minmax(0, 1fr));
+  align-items: start;
+  gap: var(--group-gap);
+  max-width: calc(var(--cols) * 480px);
+  margin: 0 auto;
 }
 
-.game__main {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  min-width: 0;
+@supports (height: 1svh) {
+  .game {
+    --avail-h: calc(100svh - var(--chrome-h));
+  }
 }
 
-.game__toolbar {
-  display: flex;
+.group {
+  container-type: inline-size;
+  display: grid;
   gap: 8px;
+  padding: var(--group-pad);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  transition: border-color 0.2s ease;
 }
 
-.stage {
+.group.is-playing {
+  border-color: var(--red);
+}
+
+.group__stage {
   display: grid;
   place-items: center;
-  padding: 6px 0 2px;
 }
 
 /* The face-off circle: blue when ready, goal-light red while music plays. */
 .puck {
-  --size: min(76vw, 44vh, 400px);
+  /* Fallback when container queries are not supported: the width of a single column. */
+  --size-w: calc(100vw - 2 * 16px - 2 * var(--group-pad) - 2px);
+  --size: max(72px, min(var(--size-w), var(--size-h), 400px));
   position: relative;
   width: var(--size);
   height: var(--size);
@@ -992,9 +988,9 @@ a {
   transition: background-color 0.2s ease, box-shadow 0.2s ease, transform 0.12s ease;
 }
 
-@supports (height: 1svh) {
+@supports (width: 1cqi) {
   .puck {
-    --size: min(76vw, 44svh, 400px);
+    --size-w: 100cqi;
   }
 }
 
@@ -1016,7 +1012,7 @@ a {
   content: "";
   position: absolute;
   inset: 11%;
-  border: calc(var(--size) * 0.01) solid rgb(255 255 255 / 30%);
+  border: max(1px, calc(var(--size) * 0.01)) solid rgb(255 255 255 / 30%);
   border-radius: 50%;
   pointer-events: none;
 }
@@ -1087,184 +1083,168 @@ a {
 }
 
 .puck__icon .icon {
-  width: calc(var(--size) * 0.14);
-  height: calc(var(--size) * 0.14);
+  width: max(14px, calc(var(--size) * 0.14));
+  height: max(14px, calc(var(--size) * 0.14));
 }
 
 .puck--ready .puck__icon .icon {
   margin-left: calc(var(--size) * 0.02);
 }
 
+/* The playlist's name, on two lines at most (G-1). */
 .puck__label {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  max-width: 74%;
+  padding-top: 0.08em;
   font-family: var(--font-display);
-  max-width: 76%;
-  font-size: calc(var(--size) * 0.165);
+  font-size: max(0.875rem, calc(var(--size) * 0.15));
   font-weight: 700;
   font-stretch: 82%;
-  line-height: 0.9;
+  line-height: 0.95;
   letter-spacing: 0.02em;
+  text-align: center;
   text-transform: uppercase;
-  padding-top: 0.08em;
+  overflow-wrap: break-word;
+  -webkit-hyphens: auto;
+  hyphens: auto;
 }
 
 .puck__time {
-  font-size: calc(var(--size) * 0.056);
+  font-size: max(0.75rem, calc(var(--size) * 0.07));
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   opacity: 0.88;
 }
 
-.now {
-  display: flex;
+.group__line {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) 48px;
   align-items: center;
-  gap: 14px;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-lg);
-  background: var(--surface);
+  gap: 6px;
+  min-height: 48px;
 }
 
-.now__cover {
-  width: 64px;
-  height: 64px;
-}
-
-.now__text {
+.group__next {
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  text-align: center;
+  line-height: 1.25;
 }
 
-.now__title,
-.now__artist,
-.queue__title,
-.queue__artist,
-.plist__name,
-.track__title,
-.track__artist,
-.result__title,
-.result__artist,
-.device__name {
+.group__label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.now__title {
-  font-size: 1.0625rem;
-  font-weight: 700;
-  line-height: 1.3;
-}
-
-.now__artist {
-  color: var(--ink-2);
-  font-size: 0.9375rem;
-}
-
-.now__status {
-  margin-top: 4px;
   color: var(--link);
-  font-size: 0.875rem;
+  font-size: 0.75rem;
   font-weight: 650;
   font-variant-numeric: tabular-nums;
 }
 
-.is-playing .now__status {
+.group.is-playing .group__label {
   color: var(--red);
 }
 
-.transport {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px;
-}
-
-.transport__then {
-  min-width: 0;
+.group__title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-align: center;
   font-size: 0.875rem;
-}
-
-.transport__then-title {
   font-weight: 600;
+  overflow-wrap: break-word;
+  -webkit-hyphens: auto;
+  hyphens: auto;
 }
 
-.game__queue {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  overflow: hidden;
+/* Two columns from 600 px, three from 900 px (G-12). */
+@media (min-width: 600px) {
+  .game {
+    --cols: 2;
+  }
+
+  .game[data-count="1"] {
+    --cols: 1;
+    --rows: 1;
+  }
+
+  .game[data-count="2"] {
+    --rows: 1;
+  }
+
+  .game[data-count="3"],
+  .game[data-count="4"] {
+    --rows: 2;
+  }
+
+  .game[data-count="5"] {
+    --rows: 3;
+  }
 }
 
-.queue {
-  position: relative;
-  margin: 0;
-  padding: 6px;
-  list-style: none;
+@media (min-width: 900px) {
+  .main--game {
+    padding: 24px 32px calc(24px + var(--safe-bottom));
+  }
+
+  .game {
+    --chrome-h: calc(var(--header-h) + var(--safe-top) + var(--safe-bottom) + 48px);
+    --cols: 3;
+    --group-gap: 16px;
+    --group-pad: 12px;
+  }
+
+  .game[data-count="2"] {
+    --cols: 2;
+  }
+
+  .game[data-count="3"] {
+    --rows: 1;
+  }
+
+  .game[data-count="4"],
+  .game[data-count="5"] {
+    --rows: 2;
+  }
+
+  .puck {
+    --size: max(72px, min(var(--size-w), var(--size-h), 440px));
+  }
 }
 
-.queue__item {
-  position: relative;
-  width: 100%;
-  min-height: 60px;
-  display: grid;
-  grid-template-columns: 24px 44px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 10px;
-  border: 0;
-  border-radius: var(--r-md);
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
+/* A Chrome split view or a very small phone (NF-5): tighter gutters, and the device chip shows only its icon (G-7). */
+@media (max-width: 359px) {
+  .topbar__inner {
+    padding: 0 max(10px, var(--safe-right)) 0 max(10px, var(--safe-left));
+  }
+
+  .main {
+    padding-right: max(10px, var(--safe-right));
+    padding-left: max(10px, var(--safe-left));
+  }
+
+  .chip {
+    padding: 0 10px;
+  }
+
+  .chip__text {
+    display: none;
+  }
+
+  .game {
+    --group-gap: 8px;
+    --group-pad: 6px;
+  }
+
+  .group__line {
+    gap: 4px;
+  }
 }
 
-.queue__item:hover:not(:disabled) {
-  background: var(--surface-2);
-}
-
-.queue__item:disabled {
-  cursor: default;
-}
-
-.queue__item.is-current {
-  background: var(--crease);
-}
-
-.queue__item.is-current::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 12px;
-  bottom: 12px;
-  width: 3px;
-  border-radius: 3px;
-  background: var(--blue);
-}
-
-.is-playing .queue__item.is-current::before {
-  background: var(--red);
-}
-
-.queue__num {
-  color: var(--ink-2);
-  font-family: var(--font-display);
-  font-size: 1.125rem;
-  font-weight: 700;
-  font-stretch: 82%;
-  font-variant-numeric: tabular-nums;
-  text-align: center;
-}
-
-.queue__cover {
-  width: 44px;
-  height: 44px;
-  border-radius: 6px;
-}
-
-.queue__text,
 .track__text,
 .result__text,
 .plist__text,
@@ -1274,11 +1254,6 @@ a {
   flex-direction: column;
 }
 
-.queue__title {
-  font-weight: 600;
-}
-
-.queue__artist,
 .track__artist,
 .result__artist,
 .plist__meta,
@@ -1287,50 +1262,15 @@ a {
   font-size: 0.8125rem;
 }
 
-.queue__start {
-  color: var(--ink-2);
-  font-size: 0.875rem;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-@media (max-width: 599px) {
-  .transport .btn {
-    width: 56px;
-  }
-}
-
-@media (min-width: 900px) {
-  .game {
-    grid-template-columns: minmax(0, 1fr) minmax(340px, 420px);
-    align-items: start;
-    gap: 32px;
-  }
-
-  .game__main {
-    gap: 18px;
-  }
-
-  .puck {
-    --size: min(40vw, 54vh, 440px);
-  }
-
-  @supports (height: 1svh) {
-    .puck {
-      --size: min(40vw, 54svh, 440px);
-    }
-  }
-
-  .game__queue {
-    position: sticky;
-    top: calc(var(--header-h) + var(--safe-top) + 24px);
-    max-height: calc(100vh - var(--header-h) - 64px);
-  }
-
-  .game__queue .queue {
-    overflow-y: auto;
-    overscroll-behavior: contain;
-  }
+.plist__name,
+.track__title,
+.track__artist,
+.result__title,
+.result__artist,
+.device__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ---------- Playlists ---------- */
@@ -1386,6 +1326,109 @@ a {
 
 .editor__nav {
   margin-bottom: -8px;
+}
+
+/* Game button picker (P-11). */
+.button-picker {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px 16px;
+}
+
+.button-picker__field {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.button-picker__field legend {
+  margin-bottom: 10px;
+  padding: 0;
+}
+
+.slots {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+@media (min-width: 520px) {
+  .slots {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
+
+.slot {
+  position: relative;
+  min-width: 0;
+}
+
+.slot input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.slot input:disabled {
+  cursor: not-allowed;
+}
+
+.slot__face {
+  min-height: 52px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  text-align: center;
+}
+
+.slot__label {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 700;
+  font-stretch: 82%;
+  line-height: 1.1;
+}
+
+.slot__caption {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-2);
+  font-size: 0.75rem;
+}
+
+.slot input:hover:not(:disabled, :checked) + .slot__face {
+  border-color: var(--line-strong);
+}
+
+.slot input:checked + .slot__face {
+  border-color: var(--blue);
+  background: var(--blue);
+  color: var(--on-accent);
+}
+
+.slot input:checked + .slot__face .slot__caption {
+  color: inherit;
+}
+
+.slot input:disabled + .slot__face {
+  opacity: 0.45;
+}
+
+.slot input:focus-visible + .slot__face {
+  outline: 3px solid var(--focus);
+  outline-offset: 1px;
 }
 
 .editor__grid {

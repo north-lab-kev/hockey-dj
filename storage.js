@@ -24,12 +24,16 @@ const TRACK_ID_PATTERN = /^[A-Za-z0-9]{22}$/;
 /** Value of `settings.deviceId` meaning "this browser's own Spotify player" (SPEC §3.4). */
 export const BROWSER_DEVICE_ID = 'browser';
 
+/** Number of game buttons (G-10). */
+export const BUTTON_COUNT = 5;
+
 const DEFAULT_SETTINGS = Object.freeze({
   language: null,
   theme: null,
   clientId: '',
   deviceId: null,
   activePlaylistId: null,
+  buttons: Object.freeze(Array(BUTTON_COUNT).fill(null)),
   advanceAfterPlayedMs: null,
   advanceAfterIdleMs: null,
   shuffle: true,
@@ -41,6 +45,7 @@ const DEFAULT_GAME = Object.freeze({
   playedMs: 0,
   stoppedAt: null,
   shuffle: null,
+  prepared: null,
 });
 
 /* ---------- Low-level access ---------- */
@@ -92,10 +97,24 @@ export function newId() {
 
 /* ---------- Settings ---------- */
 
+/** Returns exactly BUTTON_COUNT entries, each a playlist ID or null, with no ID twice (G-10). */
+function cleanButtons(value) {
+  const seen = new Set();
+  return Array.from({ length: BUTTON_COUNT }, (_, slot) => {
+    const id = Array.isArray(value) ? value[slot] : null;
+    if (typeof id !== 'string' || !id || seen.has(id)) return null;
+    seen.add(id);
+    return id;
+  });
+}
+
 /** Returns the settings merged with their defaults. */
 export function getSettings() {
   const stored = read(KEY_SETTINGS);
-  return { ...DEFAULT_SETTINGS, ...(isObject(stored) ? stored : {}) };
+  const settings = { ...DEFAULT_SETTINGS, ...(isObject(stored) ? stored : {}) };
+  // Settings saved before game buttons existed: the active playlist gets button 1 (SPEC §5.4).
+  const buttons = isObject(stored) && !('buttons' in stored) ? [settings.activePlaylistId] : settings.buttons;
+  return { ...settings, buttons: cleanButtons(buttons) };
 }
 
 /** Merges a patch into the settings, saves them and returns the result. */
@@ -141,20 +160,33 @@ export function clearPkce() {
 
 /* ---------- Game state (SPEC §4.2.1, R-10) ---------- */
 
-/** Returns a fresh game state. */
+/** Returns a fresh game state for one playlist. */
 export function defaultGame() {
   return { ...DEFAULT_GAME };
 }
 
-/** Returns the saved game state merged with its defaults. */
-export function getGame() {
-  const game = read(KEY_GAME);
-  return { ...DEFAULT_GAME, ...(isObject(game) ? game : {}) };
+/**
+ * Returns the saved game state of every playlist, keyed by playlist ID, each merged with its defaults.
+ * An old single game state (before spec 1.2) becomes the entry of the active playlist (SPEC §5.4).
+ */
+export function getGames() {
+  const stored = read(KEY_GAME);
+  if (!isObject(stored)) return {};
+  let entries = stored.playlists;
+  if (!isObject(entries)) {
+    const activeId = getSettings().activePlaylistId;
+    entries = activeId && 'currentIndex' in stored ? { [activeId]: stored } : {};
+  }
+  const games = {};
+  for (const [id, game] of Object.entries(entries)) {
+    if (isObject(game)) games[id] = { ...DEFAULT_GAME, ...game };
+  }
+  return games;
 }
 
-/** Saves the game state. */
-export function setGame(game) {
-  write(KEY_GAME, game);
+/** Saves the game state of every playlist. */
+export function setGames(games) {
+  write(KEY_GAME, { playlists: games });
 }
 
 /* ---------- Playlists ---------- */

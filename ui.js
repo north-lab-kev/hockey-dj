@@ -139,15 +139,16 @@ function ringOffset(descriptor) {
   return (RING_LENGTH * (1 - progress)).toFixed(2);
 }
 
-function statusText(descriptor) {
-  const time = formatTime(descriptor.positionMs);
-  switch (descriptor.status) {
+/** The label above the track under a game button: what Play will do, or "Then" while playing (R-9, R-15). */
+function lineLabel(group) {
+  const time = formatTime(group.positionMs);
+  switch (group.status) {
     case 'playing':
-      return t('game.status.playing', { position: time, duration: formatTime(descriptor.durationMs) });
+      return t('game.then');
     case 'resume':
       return t('game.status.resume', { time });
     case 'next':
-      return t('game.status.next', { time });
+      return t('game.status.next');
     default:
       return t('game.status.start', { time });
   }
@@ -415,83 +416,52 @@ function puckRing(descriptor) {
   return ring;
 }
 
-function puckButton(descriptor, actions) {
-  const playing = descriptor.playing;
+/** A game button: plays or stops its playlist, and shows the playlist's name (G-1). */
+function puckButton(group, actions) {
+  const playing = group.playing;
+  const name = group.playlist.name;
   return h('button', {
     type: 'button',
-    class: `puck ${playing ? 'puck--playing' : 'puck--ready'} ${descriptor.busy ? 'is-busy' : ''}`,
+    class: `puck ${playing ? 'puck--playing' : 'puck--ready'} ${group.busy ? 'is-busy' : ''}`,
     'aria-pressed': playing ? 'true' : 'false',
-    'aria-label': t('game.playStopLabel'),
-    'aria-busy': descriptor.busy ? 'true' : 'false',
-    onclick: actions.playStop,
-    'data-focus': 'puck',
+    'aria-label': t(playing ? 'game.stopList' : 'game.playList', { name }),
+    'aria-busy': group.busy ? 'true' : 'false',
+    onclick: () => actions.pressButton(group.playlist.id),
+    'data-focus': `puck-${group.playlist.id}`,
   },
-  puckRing(descriptor),
+  puckRing(group),
   h('span', { class: 'puck__icon' }, icon(playing ? 'stop' : 'play')),
-  h('span', { class: 'puck__label' }, playing ? t('game.stop') : t('game.play')),
-  h('span', { class: 'puck__time', 'data-live': 'puck-time' }, formatTime(descriptor.positionMs)));
+  h('span', { class: 'puck__label' }, name),
+  group.empty ? null : h('span', { class: 'puck__time', 'data-live': 'puck-time' }, formatTime(group.positionMs)));
 }
 
-function playlistSelect(state, actions, disabled) {
-  return h('label', { class: 'select-field' },
-    h('span', { class: 'sr-only' }, t('game.playlist')),
-    h('select', {
-      class: 'select',
-      disabled,
-      'data-focus': 'playlist-select',
-      onchange: (event) => actions.setActivePlaylist(event.target.value),
-    }, state.playlists.map((playlist) => h('option', {
-      value: playlist.id,
-      selected: playlist.id === state.settings.activePlaylistId,
-    }, playlist.name))),
-    icon('down', 'icon icon--sm select-field__icon'));
+/** Previous, the track Play will start (or the one that follows) and Next, under a game button (G-4, R-7). */
+function groupLine(group, actions) {
+  const id = group.playlist.id;
+  const name = group.playlist.name;
+  const disabled = group.locked || group.empty;
+  return h('div', { class: 'group__line' },
+    button({ iconName: 'prev', variant: 'secondary', extraClass: 'btn--icon', ariaLabel: t('game.previousIn', { name }), onClick: () => actions.prev(id), disabled, focusKey: `prev-${id}` }),
+    group.empty
+      ? h('p', { class: 'group__next' }, h('span', { class: 'group__label' }, t('game.groupEmpty')))
+      : h('p', { class: 'group__next', title: group.lineTrack.name },
+        h('span', { class: 'group__label' }, lineLabel(group)),
+        h('span', { class: 'group__title' }, group.lineTrack.name)),
+    button({ iconName: 'next', variant: 'secondary', extraClass: 'btn--icon', ariaLabel: t('game.nextIn', { name }), onClick: () => actions.next(id), disabled, focusKey: `next-${id}` }));
 }
 
-function nowCard(descriptor) {
-  return h('div', { class: 'now' },
-    cover(descriptor.track, 'now__cover'),
-    h('div', { class: 'now__text' },
-      h('p', { class: 'now__title' }, descriptor.track.name),
-      h('p', { class: 'now__artist' }, artistsText(descriptor.track)),
-      h('p', { class: 'now__status', 'data-live': 'now-status' }, statusText(descriptor))));
-}
-
-function transport(descriptor, actions) {
-  return h('div', { class: 'transport' },
-    button({ label: t('game.previous'), iconName: 'prev', variant: 'secondary', onClick: actions.prev, disabled: descriptor.busy, focusKey: 'prev', hideLabelOnMobile: true, ariaLabel: t('game.previous') }),
-    h('p', { class: 'transport__then' },
-      h('span', { class: 'muted' }, t('game.then')), ' ',
-      h('span', { class: 'transport__then-title' }, descriptor.thenTrack.name)),
-    button({ label: t('game.next'), iconName: 'next', variant: 'secondary', onClick: actions.next, disabled: descriptor.busy, focusKey: 'next', hideLabelOnMobile: true, ariaLabel: t('game.next') }));
-}
-
-/** The tracks in play order: the shuffled order in shuffle mode (R-13). */
-function queueList(descriptor, actions) {
-  return h('ol', { class: 'queue' }, descriptor.queue.map((index, position) => {
-    const track = descriptor.playlist.tracks[index];
-    const current = index === descriptor.index;
-    return h('li', {},
-      h('button', {
-        type: 'button',
-        class: `queue__item ${current ? 'is-current' : ''}`,
-        'aria-current': current ? 'true' : null,
-        disabled: descriptor.busy,
-        onclick: () => actions.selectTrack(index),
-        'data-focus': `queue-${track.id}`,
-      },
-      h('span', { class: 'queue__num' }, String(position + 1)),
-      cover(track, 'queue__cover'),
-      h('span', { class: 'queue__text' },
-        h('span', { class: 'queue__title' }, track.name),
-        h('span', { class: 'queue__artist' }, artistsText(track))),
-      h('span', { class: 'queue__start' }, timeRange(track))));
-  }));
+/** One framed group of the Game screen: a game button and its line (G-4). */
+function gameGroup(group, actions) {
+  return h('section', {
+    class: `group ${group.playing ? 'is-playing' : ''}`,
+    'aria-label': group.playlist.name,
+    'data-group': group.playlist.id,
+  },
+  h('div', { class: 'group__stage' }, puckButton(group, actions)),
+  groupLine(group, actions));
 }
 
 function renderGame(state, actions) {
-  const descriptor = actions.describeGame();
-  const active = state.playlists.find((playlist) => playlist.id === state.settings.activePlaylistId);
-
   if (!state.playlists.length) {
     return h('section', { class: 'page' },
       h('h1', { class: 'sr-only' }, t('nav.game')),
@@ -500,30 +470,19 @@ function renderGame(state, actions) {
       ]));
   }
 
-  const toolbar = h('div', { class: 'game__toolbar' },
-    playlistSelect(state, actions, Boolean(descriptor?.playing || descriptor?.busy)));
-
-  if (!descriptor) {
+  const groups = actions.describeGroups();
+  if (!groups.length) {
     return h('section', { class: 'page' },
       h('h1', { class: 'sr-only' }, t('nav.game')),
-      toolbar,
-      emptyState(t('game.empty.noSongsTitle'), t('game.empty.noSongsBody'), [
-        active ? button({ label: t('game.empty.addSongs'), iconName: 'plus', variant: 'primary', onClick: () => actions.openPlaylist(active.id) }) : null,
+      emptyState(t('game.empty.noButtonsTitle'), t('game.empty.noButtonsBody'), [
+        button({ label: t('game.empty.openPlaylists'), iconName: 'list', variant: 'primary', onClick: () => actions.navigate('playlists') }),
       ]));
   }
 
-  return h('section', { class: `game ${descriptor.playing ? 'is-playing' : ''}` },
+  // --count lets the buttons share the screen height (G-1).
+  return h('section', { class: 'game', style: `--count: ${groups.length}`, 'data-count': groups.length },
     h('h1', { class: 'sr-only' }, t('nav.game')),
-    h('div', { class: 'game__main' },
-      toolbar,
-      h('div', { class: 'stage' }, puckButton(descriptor, actions)),
-      nowCard(descriptor),
-      transport(descriptor, actions)),
-    h('section', { class: 'game__queue panel', 'aria-labelledby': 'queue-title' },
-      h('div', { class: 'panel__head' },
-        h('h2', { class: 'panel__title', id: 'queue-title' }, t('game.queue')),
-        h('span', { class: 'panel__meta' }, tn('count.songs', descriptor.playlist.tracks.length))),
-      queueList(descriptor, actions)));
+    groups.map((group) => gameGroup(group, actions)));
 }
 
 /* ---------- Playlists view (SPEC §4.3, §4.4) ---------- */
@@ -554,14 +513,14 @@ function renderPlaylistList(state, actions) {
 
   return h('section', { class: 'page' }, head,
     h('ul', { class: 'plist' }, state.playlists.map((playlist) => {
-      const isActive = playlist.id === state.settings.activePlaylistId;
+      const slot = state.settings.buttons.indexOf(playlist.id);
       return h('li', {},
         h('button', { type: 'button', class: 'plist__item', onclick: () => actions.openPlaylist(playlist.id), 'data-focus': `plist-${playlist.id}` },
           cover(playlist.tracks[0], 'plist__art'),
           h('span', { class: 'plist__text' },
             h('span', { class: 'plist__name' }, playlist.name),
             h('span', { class: 'plist__meta' }, tn('count.songs', playlist.tracks.length))),
-          isActive ? h('span', { class: 'badge' }, t('playlists.active')) : h('span', {}),
+          slot >= 0 ? h('span', { class: 'badge' }, t('playlists.button', { number: slot + 1 })) : h('span', {}),
           icon('chevron', 'icon plist__chevron')));
     })));
 }
@@ -730,6 +689,39 @@ function trackRow(playlist, track, index, state, actions) {
     expanded ? trackPanel(playlist, track, index, previewing, state, actions) : null);
 }
 
+/** The game button picker of a playlist (P-11): None or 1 to 5, with the playlist that holds each button. */
+function buttonPicker(playlist, state, actions) {
+  const buttons = state.settings.buttons;
+  const playingId = actions.playingPlaylistId();
+  const locked = playingId === playlist.id;
+  const current = buttons.indexOf(playlist.id);
+  const option = (slot, label, caption) => {
+    const holder = slot == null ? null : buttons[slot];
+    const value = slot == null ? 'none' : String(slot + 1);
+    return h('label', { class: 'slot' },
+      h('input', {
+        type: 'radio',
+        name: 'game-button',
+        value,
+        checked: slot == null ? current < 0 : current === slot,
+        disabled: locked || (holder != null && holder === playingId),
+        onchange: () => actions.assignButton(playlist.id, slot),
+        'data-focus': `game-button-${value}`,
+      }),
+      h('span', { class: 'slot__face' },
+        h('span', { class: 'slot__label' }, label),
+        caption ? h('span', { class: 'slot__caption' }, caption) : null));
+  };
+  const nameOf = (id) => state.playlists.find((candidate) => candidate.id === id)?.name;
+  return h('section', { class: 'button-picker panel' },
+    h('fieldset', { class: 'button-picker__field' },
+      h('legend', { class: 'panel__title' }, t('editor.button')),
+      h('div', { class: 'slots' },
+        option(null, t('editor.buttonNone'), null),
+        buttons.map((id, slot) => option(slot, String(slot + 1), nameOf(id) || t('editor.buttonFree'))))),
+    h('p', { class: 'hint' }, t(locked ? 'editor.buttonLocked' : 'editor.buttonHelp')));
+}
+
 function renderEditor(playlist, state, actions) {
   return h('section', { class: 'page editor' },
     h('div', { class: 'editor__nav' },
@@ -743,6 +735,7 @@ function renderEditor(playlist, state, actions) {
         button({ label: t('editor.duplicate'), iconName: 'duplicate', variant: 'ghost', onClick: () => actions.duplicatePlaylist(playlist.id), hideLabelOnMobile: true, ariaLabel: t('editor.duplicate') }),
         button({ label: t('editor.export'), iconName: 'download', variant: 'ghost', onClick: () => actions.exportPlaylist(playlist.id), hideLabelOnMobile: true, ariaLabel: t('editor.export') }),
         button({ label: t('editor.delete'), iconName: 'trash', variant: 'ghost', extraClass: 'btn--danger-text', onClick: () => actions.deletePlaylist(playlist.id), hideLabelOnMobile: true, ariaLabel: t('editor.delete') }))),
+    buttonPicker(playlist, state, actions),
     h('div', { class: 'editor__grid' },
       searchPanel(playlist, state, actions),
       h('section', { class: 'editor__songs', 'aria-labelledby': 'songs-title' },
@@ -924,33 +917,23 @@ export function renderSplash(root, message) {
   root.replaceChildren(h('div', { class: 'splash' }, logoMark('logo--hero'), spinner(), h('p', {}, message)));
 }
 
-/** Updates the live parts of the Game screen without re-rendering it. */
-export function updateLive(root, descriptor) {
-  if (!descriptor) return;
-  const time = root.querySelector('[data-live="puck-time"]');
-  if (time) time.textContent = formatTime(descriptor.positionMs);
-  const ring = root.querySelector('[data-live="puck-ring"]');
-  if (ring) ring.setAttribute('stroke-dashoffset', ringOffset(descriptor));
-  const status = root.querySelector('[data-live="now-status"]');
-  if (status) status.textContent = statusText(descriptor);
+/** Updates the live parts of the Game screen groups (time and ring) without re-rendering them. */
+export function updateLive(root, groups) {
+  for (const group of groups) {
+    if (group.empty) continue;
+    const element = root.querySelector(`[data-group="${CSS.escape(group.playlist.id)}"]`);
+    if (!element) continue;
+    const time = element.querySelector('[data-live="puck-time"]');
+    if (time) time.textContent = formatTime(group.positionMs);
+    const ring = element.querySelector('[data-live="puck-ring"]');
+    if (ring) ring.setAttribute('stroke-dashoffset', ringOffset(group));
+  }
 }
 
 /** Updates the preview position in the playlist editor. */
 export function updatePreviewTime(root, positionMs) {
   const element = root.querySelector('[data-live="preview-time"]');
   if (element) element.textContent = formatTime(positionMs);
-}
-
-/** Scrolls the queue panel (not the page) so the current track stays visible on wide screens. */
-export function keepCurrentInView(root) {
-  const list = root.querySelector('.queue');
-  const item = root.querySelector('.queue__item.is-current');
-  if (!list || !item || list.scrollHeight <= list.clientHeight) return;
-  const top = item.offsetTop;
-  const bottom = top + item.offsetHeight;
-  if (top < list.scrollTop || bottom > list.scrollTop + list.clientHeight) {
-    list.scrollTop = Math.max(0, top - list.clientHeight / 3);
-  }
 }
 
 /* ---------- Toasts ---------- */
