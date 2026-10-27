@@ -442,14 +442,14 @@ function groupLine(group, actions) {
   // Stays enabled while a request runs, so it doesn't flicker: step() ignores those taps (G-3).
   const disabled = group.empty;
   return h('div', { class: 'group__line' },
-    button({ iconName: 'prev', variant: 'secondary', extraClass: 'btn--icon', ariaLabel: t('game.previousIn', { name }), onClick: () => actions.prev(id), disabled, focusKey: `prev-${id}` }),
+    button({ iconName: 'prev', variant: 'secondary', extraClass: 'btn--icon group__prev', ariaLabel: t('game.previousIn', { name }), onClick: () => actions.prev(id), disabled, focusKey: `prev-${id}` }),
     group.empty
       ? h('p', { class: 'group__tracks' }, h('span', { class: 'group__label' }, t('game.groupEmpty')))
       : h('p', { class: 'group__tracks', title: `${group.track.name}\n${t('game.thenTrack', { name: group.thenTrack.name })}` },
         h('span', { class: 'group__label' }, lineLabel(group)),
         h('span', { class: 'group__title' }, group.track.name),
         h('span', { class: 'group__then' }, t('game.thenTrack', { name: group.thenTrack.name }))),
-    button({ iconName: 'next', variant: 'secondary', extraClass: 'btn--icon', ariaLabel: t('game.nextIn', { name }), onClick: () => actions.next(id), disabled, focusKey: `next-${id}` }));
+    button({ iconName: 'next', variant: 'secondary', extraClass: 'btn--icon group__next', ariaLabel: t('game.nextIn', { name }), onClick: () => actions.next(id), disabled, focusKey: `next-${id}` }));
 }
 
 /** One framed group of the Game screen: a game button and its line (G-4). */
@@ -691,7 +691,7 @@ function trackRow(playlist, track, index, state, actions) {
     expanded ? trackPanel(playlist, track, index, previewing, state, actions) : null);
 }
 
-/** The game button picker of a playlist (P-11): None or 1 to 5, with the playlist that holds each button. */
+/** The game button picker of a playlist (P-11): None or 1 to 4, with the playlist that holds each button. */
 function buttonPicker(playlist, state, actions) {
   const buttons = state.settings.buttons;
   const playingId = actions.playingPlaylistId();

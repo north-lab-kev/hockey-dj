@@ -25,7 +25,7 @@ const TRACK_ID_PATTERN = /^[A-Za-z0-9]{22}$/;
 export const BROWSER_DEVICE_ID = 'browser';
 
 /** Number of game buttons (G-10). */
-export const BUTTON_COUNT = 5;
+export const BUTTON_COUNT = 4;
 
 const DEFAULT_SETTINGS = Object.freeze({
   language: null,

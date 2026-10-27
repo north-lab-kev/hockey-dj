@@ -12,7 +12,7 @@ Hockey DJ is a lightweight web app for playing music in a hockey arena. Build pl
 
 ## Features
 
-- **Up to five game buttons**, one per playlist (warm-up, goal, penalty…), each showing the playlist's name. Tap another button to switch playlists in one tap. Each playlist remembers where it was.
+- **Up to four game buttons**, one per playlist (warm-up, goal, penalty…), each showing the playlist's name. Tap another button to switch playlists in one tap. Each playlist remembers where it was.
 - **Made for a narrow window:** the Game screen fits one side of a Chrome split view (about 220 px wide), a phone held in one hand, or a full screen.
 - **Custom start and end times:** each song starts and stops at the moments you choose, set by typing them or by tapping **Mark start** and **Mark end** while listening. At the end, the next song starts.
 - **Smart resume:**
@@ -70,11 +70,11 @@ The app is a set of static files hosted on GitHub Pages. You sign in to Spotify 
 
 ### 3. Build a playlist
 
-Create a playlist, add songs, and set each song's start time, and an end time if you want. Use **Preview** with **Mark start** and **Mark end** to find the best moments. Under **Game button**, pick the button (1 to 5) that plays this playlist.
+Create a playlist, add songs, and set each song's start time, and an end time if you want. Use **Preview** with **Mark start** and **Mark end** to find the best moments. Under **Game button**, pick the button (1 to 4) that plays this playlist.
 
 ### 4. Game time
 
-Open the **Game** screen and tap a playlist's button at each stoppage, then tap it again when the puck drops. The screen stays awake while the Game screen is open. On a computer, `1` to `5` tap the buttons, `Space` plays or stops the last one used, and `←` / `→` choose the previous or next song.
+Open the **Game** screen and tap a playlist's button at each stoppage, then tap it again when the puck drops. The screen stays awake while the Game screen is open. On a computer, `1` to `4` tap the buttons, `Space` plays or stops the last one used, and `←` / `→` choose the previous or next song.
 
 **Tips**
 - Turn off **Autoplay** in the Spotify app settings, so Spotify never adds songs of its own.

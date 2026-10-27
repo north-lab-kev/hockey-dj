@@ -1097,10 +1097,10 @@ a {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
-  max-width: 74%;
+  max-width: 78%;
   padding-top: 0.08em;
   font-family: var(--font-display);
-  font-size: max(0.875rem, calc(var(--size) * 0.15));
+  font-size: max(0.75rem, calc(var(--size) * 0.15));
   font-weight: 700;
   font-stretch: 82%;
   line-height: 0.95;
@@ -1166,7 +1166,7 @@ a {
   font-size: 0.75rem;
 }
 
-/* Two columns from 600 px, three from 900 px (G-12). */
+/* Two columns from 600 px, and three for three groups from 900 px (G-12). */
 @media (min-width: 600px) {
   .game {
     --cols: 2;
@@ -1185,10 +1185,6 @@ a {
   .game[data-count="4"] {
     --rows: 2;
   }
-
-  .game[data-count="5"] {
-    --rows: 3;
-  }
 }
 
 @media (min-width: 900px) {
@@ -1198,22 +1194,13 @@ a {
 
   .game {
     --chrome-h: calc(var(--header-h) + var(--safe-top) + var(--safe-bottom) + 48px);
-    --cols: 3;
     --group-gap: 16px;
     --group-pad: 12px;
   }
 
-  .game[data-count="2"] {
-    --cols: 2;
-  }
-
   .game[data-count="3"] {
+    --cols: 3;
     --rows: 1;
-  }
-
-  .game[data-count="4"],
-  .game[data-count="5"] {
-    --rows: 2;
   }
 
   .puck {
@@ -1247,6 +1234,41 @@ a {
 
   .group__line {
     gap: 4px;
+  }
+}
+
+/* A very narrow window: Previous and Next move under the two tracks, which get the full width (G-4). */
+@media (max-width: 299px) {
+  .main--game {
+    padding-top: 8px;
+    padding-bottom: calc(var(--nav-h) + var(--safe-bottom) + 8px);
+  }
+
+  .game {
+    --chrome-h: calc(var(--header-h) + var(--nav-h) + var(--safe-top) + var(--safe-bottom) + 16px);
+    --line-h: 104px;
+  }
+
+  .group__line {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas:
+      "tracks tracks"
+      "prev next";
+    row-gap: 4px;
+  }
+
+  .group__tracks {
+    grid-area: tracks;
+  }
+
+  .group__prev {
+    grid-area: prev;
+    width: auto;
+  }
+
+  .group__next {
+    grid-area: next;
+    width: auto;
   }
 }
 
@@ -1360,7 +1382,7 @@ a {
 
 @media (min-width: 520px) {
   .slots {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 }
 

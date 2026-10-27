@@ -94,11 +94,11 @@ There are no automated tests. Before each release, run these scenarios on a phon
 8. **Continuation:** let a track end by itself, and pause from the Spotify app. (R-5, §3.4)
 9. **Previous and Next:** while Stopped, they change the track the next Play starts. While Playing, the current track keeps playing and only "Then" changes; that track plays at the end of the current one. Prepare a track, Stop, then Play before the thresholds: the prepared track starts. (R-7, R-15)
    - Repeat with shuffle on: go past the end of a pass and back with Previous, check that "Then" matches what plays, reload, then add and remove songs. Turn shuffle off and on during a game. (R-11 to R-14, S-9)
-10. **Game buttons:** give 1, 3 and 5 playlists a button from the editor, including a button another playlist holds, and check the badges in Playlists. Switch between groups while music plays: one tap, no silence, and the group you left resumes or moves on by R-2. Make the switch fail (for example, close the Spotify app): the first playlist keeps playing. Try to change the button of the playlist that plays, delete a playlist that has a button, and use the keys `1` to `5`. (G-1 to G-12, P-11)
+10. **Game buttons:** give 1, 3 and 4 playlists a button from the editor, including a button another playlist holds, and check the badges in Playlists. Switch between groups while music plays: one tap, no silence, and the group you left resumes or moves on by R-2. Make the switch fail (for example, close the Spotify app): the first playlist keeps playing. Try to change the button of the playlist that plays, delete a playlist that has a button, and use the keys `1` to `4`. (G-1 to G-12, P-11)
 11. **Reload mid-game:** reload the page during a game; the app keeps its place in every playlist. (R-10)
 12. **Wake lock and keyboard:** check that the screen stays on and that the keyboard shortcuts work. (G-8, G-9)
 13. **Export, import and reset:** the exported file must contain no tokens. (E-1 to E-4, S-5)
-14. **Layouts:** portrait phone, landscape tablet and desktop, and Chrome split view with the app on a side about 220 px wide: with 1 to 5 buttons, the Game screen fits without scrolling. (NF-5, G-1, G-12, §7)
+14. **Layouts:** portrait phone, landscape tablet and desktop, and Chrome split view with the app on a side about 220 px wide: with 1 to 4 buttons, the Game screen fits without scrolling. Below 300 px wide, Previous and Next sit under the tracks. (NF-5, G-1, G-4, G-12, §7)
 15. **Theme:** on Auto, switch the device between light and dark while the app is open; the app follows live. Force Light, then Dark, and reload: the choice is kept, with no flash of the other theme. (S-7, §7)
 16. **Browsers:** every browser listed in SPEC §8.
 17. **Installation:** install from Chrome or Edge on desktop and from Add to Home Screen on Android and iOS. Check the name and icon, that it opens full screen, and that connecting to Spotify works inside the installed app. (A-1 to A-4)
@@ -111,7 +111,7 @@ Version 1.1 (spec 1.2) is built locally: game buttons and the split-view Game sc
 **Features**
 - Setup and Spotify connection with PKCE (§3.2, §4.1).
 - Playback devices, including the browser player: the default on desktop, experimental on Android (§3.4, B-1 to B-5).
-- Game screen: up to five game buttons, one per playlist, with Play/Stop, resume or advance per playlist, switching in one tap, automatic continuation, Previous and Next that prepare the following track, wake lock and keyboard shortcuts (§4.2, §4.2.1). Fits a narrow Chrome split view.
+- Game screen: up to four game buttons, one per playlist, with Play/Stop, resume or advance per playlist, switching in one tap, automatic continuation, Previous and Next that prepare the following track, wake lock and keyboard shortcuts (§4.2, §4.2.1). Fits a narrow Chrome split view.
 - Shuffle, on by default (§4.2.2).
 - Playlists: search, paste a link, import a Spotify playlist without duplicates, start and end of each song with Mark start and Mark end, preview, reorder, game button (§4.3).
 - Export, import and reset (§4.4, S-5).

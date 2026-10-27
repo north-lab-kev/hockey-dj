@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Version** | 1.3 |
+| **Version** | 1.4 |
 | **Last updated** | 2026-10-27 |
 | **Live URL** | https://north-lab-kev.github.io/hockey-dj/ |
 
@@ -143,13 +143,13 @@ All endpoints below are on Spotify's "Endpoints still available" list, checked o
 | G-1 | **Game buttons.** The Game screen shows one round Play/Stop button per playlist that has a button (G-10), button 1 first. Each one shows its playlist's name (at most two lines), a play or stop icon, and the position in the song. Its state is shown by colour, icon and `aria-pressed`, never by colour alone, and its accessible name is "Play {playlist}" or "Stop {playlist}". The buttons share the screen height so that they all fit without scrolling, on a phone in portrait mode and in a window of about 220 × 900 px. Each one is as large as the space allows: a single button takes about 40 % of the height on a phone in portrait mode. |
 | G-2 | **Play** and **Stop** follow the rules in §4.2.1, for the playlist of the button. Only one playlist plays at a time. |
 | G-3 | Feedback is optimistic: the button changes state immediately and shows a small busy indicator. If the request fails, it reverts and shows an error toast. Taps on any game control made while a request is in flight are ignored. |
-| G-4 | Each button forms a framed **group**. Under the button are Previous and Next, with two tracks between them. The first one is the track that plays, labelled "Now playing", or while Stopped the one the next Play starts (R-9). Under it, smaller, is the track that follows, labelled "Then" (R-15). The playing group is framed in red. The Game screen has no full song list. |
+| G-4 | Each button forms a framed **group**. Under the button are Previous and Next, with two tracks between them. The first one is the track that plays, labelled "Now playing", or while Stopped the one the next Play starts (R-9). Under it, smaller, is the track that follows, labelled "Then" (R-15). In a window narrower than 300 px, Previous and Next move under the two tracks, which then get the full width. The playing group is framed in red. The Game screen has no full song list. |
 | G-5 | Previous and Next of a group select or prepare a track of its playlist (R-7). |
 | G-6 | **Switching:** tapping another group's button while music plays stops the playing playlist exactly like Stop (R-1), then starts the tapped playlist by its own rules (R-2, R-3, R-15). This takes a single play request, with no pause in between. If the request fails, the first playlist keeps playing and an error toast is shown. |
 | G-7 | An indicator shows the selected device. A warning appears when no device is available. On narrow screens it shows only its icon. |
-| G-8 | Keyboard shortcuts on desktop: `Space` = Play/Stop of the last-used group, `1` to `5` = the game button with that number, `→` / `←` = next/previous track of the last-used group. The last-used group is the one whose button, Previous or Next was used last. It is saved in `settings.activePlaylistId`. |
+| G-8 | Keyboard shortcuts on desktop: `Space` = Play/Stop of the last-used group, `1` to `4` = the game button with that number, `→` / `←` = next/previous track of the last-used group. The last-used group is the one whose button, Previous or Next was used last. It is saved in `settings.activePlaylistId`. |
 | G-9 | The Screen Wake Lock API keeps the screen on while the Game screen is visible. It is re-acquired on `visibilitychange`, and silently skipped where unsupported. |
-| G-10 | **Buttons:** there are five game buttons, numbered 1 to 5. Each one can hold one playlist, and a playlist has at most one button (P-11). Buttons without a playlist are not shown, and the others keep the order of their numbers. |
+| G-10 | **Buttons:** there are four game buttons, numbered 1 to 4. Each one can hold one playlist, and a playlist has at most one button (P-11). Buttons without a playlist are not shown, and the others keep the order of their numbers. |
 | G-11 | When no button has a playlist, the Game screen shows a message and a button that opens the Playlists screen. A group whose playlist has no songs shows "No songs", and tapping its button shows an error toast. |
 | G-12 | On wide screens, the groups are laid out in a grid of up to three columns. |
 
@@ -196,7 +196,7 @@ Each playlist has its own game state, so every button keeps its place. For its c
 | P-7 | Validation: `0 ≤ startMs ≤ durationMs − 1 s`. Out-of-range values are clamped and a warning is shown. A start moved to less than 1 s before the marked end removes that end, with a warning. |
 | P-8 | Every change is saved immediately (autosave). There is no Save button. |
 | P-10 | Each track can have a marked end (`endMs`), where play stops and moves on to the next track (R-5). It is optional: `null` means the end of the song. It can be set by typing `m:ss` or seconds in the End field (empty or the song's length clears it), with **Mark end** while previewing, or cleared with a × button. It must be at least 1 s after the start, otherwise it is refused with a warning. The Game list and the editor show "start → end" when an end is marked, and the progress ring and the time shown go up to that end. Changing the end of the track that is playing applies at once. |
-| P-11 | **Game button:** the editor has a "Game button" picker with None and 1 to 5 (G-10). Under each number it shows the playlist that holds that button, or "free". Picking a button that another playlist holds takes it from that playlist. While music plays, the playlist that plays can't change its button or lose it to another playlist. The Playlists screen shows a "Button N" badge next to each playlist that has one. Duplicated and imported playlists have no button. Deleting a playlist frees its button. The first playlist created while no button holds a playlist gets button 1. |
+| P-11 | **Game button:** the editor has a "Game button" picker with None and 1 to 4 (G-10). Under each number it shows the playlist that holds that button, or "free". Picking a button that another playlist holds takes it from that playlist. While music plays, the playlist that plays can't change its button or lose it to another playlist. The Playlists screen shows a "Button N" badge next to each playlist that has one. Duplicated and imported playlists have no button. Deleting a playlist frees its button. The first playlist created while no button holds a playlist gets button 1. |
 | P-9 | **Import a Spotify playlist** into the playlist being edited. The picker lists only the user's playlists that they own or collaborate on. The songs are added at the end, in the Spotify order, with `startMs = 0`. Songs already in the playlist (same track ID) and repeats inside the Spotify playlist are skipped, and so are local files and podcast episodes. A message then reports how many songs were added, skipped as duplicates, and unavailable. |
 
 ### 4.4 Export and import
@@ -257,7 +257,7 @@ All keys are prefixed with `hockeydj.`. Each value is JSON. Only `storage.js` re
 
 | Key | Content |
 |---|---|
-| `hockeydj.settings` | `{ "language": "en" \| "fr" \| null, "theme": "light" \| "dark" \| null, "clientId": "…", "deviceId": "…" \| "browser", "activePlaylistId": "…", "buttons": ["playlistId" \| null, …], "advanceAfterPlayedMs": 20000 \| null, "advanceAfterIdleMs": 60000 \| null, "shuffle": true \| false }` (`null` = default, S-8; `shuffle` defaults to `true`, S-9; `activePlaylistId` is the last-used group, G-8; `buttons` has five entries, index 0 = button 1, G-10) |
+| `hockeydj.settings` | `{ "language": "en" \| "fr" \| null, "theme": "light" \| "dark" \| null, "clientId": "…", "deviceId": "…" \| "browser", "activePlaylistId": "…", "buttons": ["playlistId" \| null, …], "advanceAfterPlayedMs": 20000 \| null, "advanceAfterIdleMs": 60000 \| null, "shuffle": true \| false }` (`null` = default, S-8; `shuffle` defaults to `true`, S-9; `activePlaylistId` is the last-used group, G-8; `buttons` has four entries, index 0 = button 1, G-10) |
 | `hockeydj.game` | `{ "playlists": { "playlistId": GameState, … } }`. A GameState is `{ "currentIndex": 0, "positionMs": 45000, "playedMs": 12000, "stoppedAt": "2026-10-18T19:30:00.000Z" \| null, "shuffle": { "past": ["trackId", …] \| null, "order": ["trackId", …], "upcoming": ["trackId", …] } \| null, "prepared": { "trackId": "…", "shuffle": { … } \| null } \| null }` (see R-10, R-14 and R-15; `shuffle` is `null` in playlist order) |
 | `hockeydj.auth` | `{ "accessToken": "…", "refreshToken": "…", "expiresAt": 1760000000000, "scopes": ["…"] }` |
 | `hockeydj.playlists` | `{ "schemaVersion": 2, "playlists": [ Playlist, … ] }` |
@@ -376,7 +376,7 @@ All files are at the repository root.
 - Browser player (§3.4, B-1 to B-5).
 
 **Phase 3**
-- Game buttons: up to five playlists on the Game screen, each with its own game state (G-1 to G-12, P-11).
+- Game buttons: up to four playlists on the Game screen, each with its own game state (G-1 to G-12, P-11).
 - Previous and Next prepare the following track while music plays (R-15).
 - Game screen layout for a narrow Chrome split view (NF-5, §7).
 
@@ -404,6 +404,7 @@ All files are at the repository root.
 
 | Version | Date | Changes |
 |---|---|---|
+| 1.4 | 2026-10-27 | Game buttons are limited to four (G-8, G-10, P-11, §5.1). In a window narrower than 300 px, Previous and Next move under the two tracks of each group (G-4). |
 | 1.3 | 2026-10-27 | Each group now always shows two tracks: the one that plays (or that Play will start) and the one that follows (G-4). |
 | 1.2 | 2026-10-27 | Added game buttons (G-1 to G-12, P-11): up to five playlists each get their own round button on the Game screen, labelled with the playlist's name, with Previous, Next and the next track in a framed group. Tapping another button switches playlists in one tap. Each playlist keeps its own game state (§4.2.1, R-10, R-14). Previous and Next while playing now prepare the following track instead of starting it (R-7, R-15). The playlist selector, the now-playing card and the song list left the Game screen (R-13). The Game screen fits a narrow Chrome split view (NF-5, §7). §1, §5.1, §5.4 and §9 updated. |
 | 1.1 | 2026-10-20 | Added updates (§4.8, U-1 and U-2): a service worker that revalidates every file on each load, and a banner when a newer version is deployed while the app is open. `APP_VERSION` moved to `version.js`. A-4 and §6 updated. |

@@ -28,7 +28,7 @@ const SEARCH_DEBOUNCE_MS = 350;
 const MIN_TAIL_MS = 1_000; // P-7, P-10: a start must stay at least this long before the end
 const START_STEP_MS = 100;
 const THEME_COLORS = { light: '#EEF3F7', dark: '#0B1424' };
-const KEY_BUTTONS = ['1', '2', '3', '4', '5']; // G-8: keys of game buttons 1 to 5
+const KEY_BUTTONS = ['1', '2', '3', '4']; // G-8: keys of game buttons 1 to 4
 
 const ADVANCE_SETTINGS = Object.freeze({
   played: { key: 'advanceAfterPlayedMs', defaultMs: ADVANCE_AFTER_PLAYED_MS, minMs: ADVANCE_PLAYED_MIN_MS, maxMs: ADVANCE_PLAYED_MAX_MS },
