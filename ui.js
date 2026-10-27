@@ -139,12 +139,12 @@ function ringOffset(descriptor) {
   return (RING_LENGTH * (1 - progress)).toFixed(2);
 }
 
-/** The label above the track under a game button: what Play will do, or "Then" while playing (R-9, R-15). */
+/** The label above the track of a group: "Now playing", or what Play will do (R-9). */
 function lineLabel(group) {
   const time = formatTime(group.positionMs);
   switch (group.status) {
     case 'playing':
-      return t('game.then');
+      return t('game.status.playing');
     case 'resume':
       return t('game.status.resume', { time });
     case 'next':
@@ -435,7 +435,7 @@ function puckButton(group, actions) {
   group.empty ? null : h('span', { class: 'puck__time', 'data-live': 'puck-time' }, formatTime(group.positionMs)));
 }
 
-/** Previous, the track Play will start (or the one that follows) and Next, under a game button (G-4, R-7). */
+/** Previous, the track that plays (or that Play will start), the track that follows, and Next (G-4, R-7). */
 function groupLine(group, actions) {
   const id = group.playlist.id;
   const name = group.playlist.name;
@@ -443,10 +443,12 @@ function groupLine(group, actions) {
   return h('div', { class: 'group__line' },
     button({ iconName: 'prev', variant: 'secondary', extraClass: 'btn--icon', ariaLabel: t('game.previousIn', { name }), onClick: () => actions.prev(id), disabled, focusKey: `prev-${id}` }),
     group.empty
-      ? h('p', { class: 'group__next' }, h('span', { class: 'group__label' }, t('game.groupEmpty')))
-      : h('p', { class: 'group__next', title: group.lineTrack.name },
+      ? h('p', { class: 'group__tracks' }, h('span', { class: 'group__label' }, t('game.groupEmpty')))
+      : h('p', { class: 'group__tracks', title: `${group.track.name}
+${t('game.thenTrack', { name: group.thenTrack.name })}` },
         h('span', { class: 'group__label' }, lineLabel(group)),
-        h('span', { class: 'group__title' }, group.lineTrack.name)),
+        h('span', { class: 'group__title' }, group.track.name),
+        h('span', { class: 'group__then' }, t('game.thenTrack', { name: group.thenTrack.name }))),
     button({ iconName: 'next', variant: 'secondary', extraClass: 'btn--icon', ariaLabel: t('game.nextIn', { name }), onClick: () => actions.next(id), disabled, focusKey: `next-${id}` }));
 }
 

@@ -18,7 +18,7 @@ Hockey DJ is a lightweight web app for playing music in a hockey arena. Build pl
 - **Smart resume:**
   - A song stopped after a few seconds resumes where it left off.
   - A song that already played 20 s, or was stopped more than a minute ago, moves on to the next one. Both times can be changed in Settings.
-  - Under each button, the screen shows whether the next Play will resume or start the next song.
+  - Under each button, the screen shows the song that plays, or whether the next Play will resume or start the next song, and the song after it.
 - **Previous and Next** under each button choose the next song. While music plays, they prepare the song that follows, without cutting the current one.
 - **Continuous play:** when a song ends, the next song starts at its own start time.
 - **Shuffle, on by default:** every song plays once in a random order, then a new order starts. You can switch to the playlist order in Settings.

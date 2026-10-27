@@ -204,7 +204,7 @@ let lastGameKey = '';
 function gameKey() {
   const groups = describeGroups().map((group) => (group.empty
     ? `${group.playlist.id}:empty`
-    : `${group.playlist.id}:${group.status}:${group.index}:${group.busy}:${group.lineTrack.id}`));
+    : `${group.playlist.id}:${group.status}:${group.index}:${group.busy}:${group.thenTrack.id}`));
   return `${state.playback.busy}|${groups.join('|')}`;
 }
 
@@ -779,8 +779,8 @@ function planPlay(playlist, now = Date.now()) {
 }
 
 /**
- * Describes one group of the Game screen (G-4): what its button plays or will play,
- * and the track on the line under it.
+ * Describes one group of the Game screen (G-4): the track its button plays or will play,
+ * and the track that follows it.
  */
 function describeGroup(playlist, now = Date.now()) {
   const playback = state.playback;
@@ -792,7 +792,7 @@ function describeGroup(playlist, now = Date.now()) {
   const plan = playing
     ? { index: wrap(playback.index, tracks.length), positionMs: estimateProgress(now), status: 'playing', shuffle: gameOf(playlist).shuffle }
     : planPlay(playlist, now);
-  const lineIndex = playing ? followingTrack(playlist, plan.index).index : plan.index;
+  const then = playing ? followingTrack(playlist, plan.index) : moveFrom(playlist, plan.index, 1, plan.shuffle);
   return {
     ...base,
     empty: false,
@@ -802,7 +802,8 @@ function describeGroup(playlist, now = Date.now()) {
     positionMs: plan.positionMs,
     durationMs: playing ? playbackEnd(playback) : endOf(tracks[plan.index]),
     shuffle: plan.shuffle,
-    lineTrack: tracks[lineIndex],
+    track: tracks[plan.index],
+    thenTrack: tracks[then.index],
   };
 }
 

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Version** | 1.2 |
+| **Version** | 1.3 |
 | **Last updated** | 2026-10-27 |
 | **Live URL** | https://north-lab-kev.github.io/hockey-dj/ |
 
@@ -143,7 +143,7 @@ All endpoints below are on Spotify's "Endpoints still available" list, checked o
 | G-1 | **Game buttons.** The Game screen shows one round Play/Stop button per playlist that has a button (G-10), button 1 first. Each one shows its playlist's name (at most two lines), a play or stop icon, and the position in the song. Its state is shown by colour, icon and `aria-pressed`, never by colour alone, and its accessible name is "Play {playlist}" or "Stop {playlist}". The buttons share the screen height so that they all fit without scrolling, on a phone in portrait mode and in a window of about 220 × 900 px. Each one is as large as the space allows: a single button takes about 40 % of the height on a phone in portrait mode. |
 | G-2 | **Play** and **Stop** follow the rules in §4.2.1, for the playlist of the button. Only one playlist plays at a time. |
 | G-3 | Feedback is optimistic: the button changes state immediately and shows a small busy indicator. If the request fails, it reverts and shows an error toast. Taps on any game control made while a request is in flight are ignored. |
-| G-4 | Each button forms a framed **group** with one line under it: Previous, a track and Next. While Stopped, the track is the one the next Play starts (R-9). While Playing, it is the track that follows, labelled "Then" (R-15). The playing group is framed in red. The Game screen has no full song list. |
+| G-4 | Each button forms a framed **group**. Under the button are Previous and Next, with two tracks between them. The first one is the track that plays, labelled "Now playing", or while Stopped the one the next Play starts (R-9). Under it, smaller, is the track that follows, labelled "Then" (R-15). The playing group is framed in red. The Game screen has no full song list. |
 | G-5 | Previous and Next of a group select or prepare a track of its playlist (R-7). |
 | G-6 | **Switching:** tapping another group's button while music plays stops the playing playlist exactly like Stop (R-1), then starts the tapped playlist by its own rules (R-2, R-3, R-15). This takes a single play request, with no pause in between. If the request fails, the first playlist keeps playing and an error toast is shown. |
 | G-7 | An indicator shows the selected device. A warning appears when no device is available. On narrow screens it shows only its icon. |
@@ -404,6 +404,7 @@ All files are at the repository root.
 
 | Version | Date | Changes |
 |---|---|---|
+| 1.3 | 2026-10-27 | Each group now always shows two tracks: the one that plays (or that Play will start) and the one that follows (G-4). |
 | 1.2 | 2026-10-27 | Added game buttons (G-1 to G-12, P-11): up to five playlists each get their own round button on the Game screen, labelled with the playlist's name, with Previous, Next and the next track in a framed group. Tapping another button switches playlists in one tap. Each playlist keeps its own game state (§4.2.1, R-10, R-14). Previous and Next while playing now prepare the following track instead of starting it (R-7, R-15). The playlist selector, the now-playing card and the song list left the Game screen (R-13). The Game screen fits a narrow Chrome split view (NF-5, §7). §1, §5.1, §5.4 and §9 updated. |
 | 1.1 | 2026-10-20 | Added updates (§4.8, U-1 and U-2): a service worker that revalidates every file on each load, and a banner when a newer version is deployed while the app is open. `APP_VERSION` moved to `version.js`. A-4 and §6 updated. |
 | 1.0 | 2026-10-20 | Version 1.0: Phase 1 and Phase 2 are complete, and the app version is 1.0. No functional change. |
