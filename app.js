@@ -853,13 +853,16 @@ function saveStop(playlist, { positionMs, segmentMs }, now) {
 /**
  * Starts a track of a playlist. Returns true on success.
  * `previous` is the playback of another playlist that this start replaces (G-6): it is
- * saved as a Stop on success, and keeps playing if the start fails.
+ * saved as a Stop right away, and keeps playing if the start fails.
  */
 async function startGameTrack(playlist, index, positionMs, { resetPlayed, shuffle = gameOf(playlist).shuffle, previous = null }) {
   const track = playlist.tracks[index];
   const switchedAt = Date.now();
-  const left = previous && { playlist: findPlaylist(previous.playlistId), values: stopValues(previous, switchedAt) };
+  const left = previous && findPlaylist(previous.playlistId);
+  const leftBefore = left && gameOf(left);
   stopLoops();
+  // The playlist left behind shows where it stopped while the play request runs (G-3).
+  if (left) saveStop(left, stopValues(previous, switchedAt), switchedAt);
   state.playback = {
     ...idlePlayback(),
     status: 'playing',
@@ -877,13 +880,13 @@ async function startGameTrack(playlist, index, positionMs, { resetPlayed, shuffl
     const deviceId = await ensureDevice();
     await playOnDevice(track.uri, positionMs, deviceId);
   } catch (error) {
+    if (left) saveGame(left, leftBefore);
     state.playback = previous || idlePlayback();
     if (previous) startLoops();
     render();
     handleError(error);
     return false;
   }
-  if (left?.playlist) saveStop(left.playlist, left.values, switchedAt);
   const now = Date.now();
   state.playback = { ...state.playback, busy: false, syncedAt: now, segmentStartedAt: now, ignorePollUntil: now + POLL_GRACE_MS };
   const game = gameOf(playlist);
@@ -899,14 +902,17 @@ async function stopGame({ external = false } = {}) {
   const playback = state.playback;
   const playlist = findPlaylist(playback.playlistId);
   const now = Date.now();
-  const values = stopValues(playback, now);
+  const before = playlist && gameOf(playlist);
   stopLoops();
+  // Saved before the pause request, so the group shows where it stopped while the request runs (G-3).
+  if (playlist) saveStop(playlist, stopValues(playback, now), now);
   if (!external) {
     state.playback = { ...playback, status: 'stopped', busy: true };
     render();
     try {
       await spotify.pause(pauseDeviceId());
     } catch (error) {
+      if (playlist) saveGame(playlist, before);
       state.playback = playback;
       startLoops();
       render();
@@ -914,7 +920,6 @@ async function stopGame({ external = false } = {}) {
       return;
     }
   }
-  if (playlist) saveStop(playlist, values, now);
   state.playback = idlePlayback();
   render();
 }
