@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Version** | 1.1 |
-| **Last updated** | 2026-10-20 |
+| **Version** | 1.2 |
+| **Last updated** | 2026-10-27 |
 | **Live URL** | https://north-lab-kev.github.io/hockey-dj/ |
 
 > This document defines **what** Hockey DJ does and **why**. It is the source of truth for requirements and technical decisions, and changes to it are recorded in the [Changelog](#12-changelog).
@@ -13,7 +13,7 @@
 
 ## 1. Purpose
 
-Hockey DJ is a web app for playing music in a hockey arena during stoppages of play. At each stoppage, the operator taps one big button to start a song at its most energetic moment (e.g. the chorus). When play resumes, the operator taps the same button to stop it.
+Hockey DJ is a web app for playing music in a hockey arena during stoppages of play. At each stoppage, the operator taps a big button to start a song at its most energetic moment (e.g. the chorus). When play resumes, the operator taps the same button to stop it. Each button plays its own playlist (for example warm-up music or a goal song).
 
 - **Music source:** the operator's Spotify Premium account.
 - **Users:** single user. There are no user accounts in the app.
@@ -27,7 +27,7 @@ Hockey DJ is a web app for playing music in a hockey arena during stoppages of p
 | NF-2 | Nothing to install. Installing the app on a home screen or desktop is optional (§4.7). |
 | NF-3 | No backend and no database. Static files only, hosted for free on GitHub Pages from a public repository, published from the `main` branch root. |
 | NF-4 | All user data is stored locally in the browser (localStorage). Nothing is sent anywhere except Spotify. |
-| NF-5 | Responsive and mobile-first. Must be fully usable one-handed on a phone in portrait mode. |
+| NF-5 | Responsive and mobile-first. Must be fully usable one-handed on a phone in portrait mode. The Game screen must also be fully usable in a narrow, tall window, such as one side of a Chrome split view (about 220 px wide). |
 | NF-6 | Bilingual UI: English and French, with a language selector. The default language is detected from the browser. |
 | NF-7 | Plain HTML, CSS and JavaScript (native ES modules). No framework, no npm, no build step. |
 | NF-8 | No third-party runtime dependencies. Exception: the Spotify Web Playback SDK script (§3.4). |
@@ -140,19 +140,22 @@ All endpoints below are on Spotify's "Endpoints still available" list, checked o
 
 | ID | Requirement |
 |---|---|
-| G-1 | One **big Play/Stop button**. On a phone in portrait mode it takes at least about 40 % of the viewport height. Its state is shown by colour, icon and a text label (`PLAY` / `STOP`), never by colour alone. |
-| G-2 | **Play** and **Stop** follow the rules in §4.2.1. |
-| G-3 | Feedback is optimistic: the button changes state immediately and shows a small busy indicator. If the request fails, it reverts and shows an error toast. Taps made while a request is in flight are ignored. |
-| G-4 | The screen shows the current track (cover, title, artist, start time), the next track, and what the next Play will do (R-9). |
-| G-5 | Previous and Next buttons, and tapping a track in the list, select the current track (R-7). |
-| G-6 | A playlist selector chooses the active playlist. It is disabled while game music plays. |
-| G-7 | An indicator shows the selected device. A warning appears when no device is available. |
-| G-8 | Keyboard shortcuts on desktop: `Space` = Play/Stop, `→` / `←` = next/previous track. |
+| G-1 | **Game buttons.** The Game screen shows one round Play/Stop button per playlist that has a button (G-10), button 1 first. Each one shows its playlist's name (at most two lines), a play or stop icon, and the position in the song. Its state is shown by colour, icon and `aria-pressed`, never by colour alone, and its accessible name is "Play {playlist}" or "Stop {playlist}". The buttons share the screen height so that they all fit without scrolling, on a phone in portrait mode and in a window of about 220 × 900 px. Each one is as large as the space allows: a single button takes about 40 % of the height on a phone in portrait mode. |
+| G-2 | **Play** and **Stop** follow the rules in §4.2.1, for the playlist of the button. Only one playlist plays at a time. |
+| G-3 | Feedback is optimistic: the button changes state immediately and shows a small busy indicator. If the request fails, it reverts and shows an error toast. Taps on any game control made while a request is in flight are ignored. |
+| G-4 | Each button forms a framed **group** with one line under it: Previous, a track and Next. While Stopped, the track is the one the next Play starts (R-9). While Playing, it is the track that follows, labelled "Then" (R-15). The playing group is framed in red. The Game screen has no full song list. |
+| G-5 | Previous and Next of a group select or prepare a track of its playlist (R-7). |
+| G-6 | **Switching:** tapping another group's button while music plays stops the playing playlist exactly like Stop (R-1), then starts the tapped playlist by its own rules (R-2, R-3, R-15). This takes a single play request, with no pause in between. If the request fails, the first playlist keeps playing and an error toast is shown. |
+| G-7 | An indicator shows the selected device. A warning appears when no device is available. On narrow screens it shows only its icon. |
+| G-8 | Keyboard shortcuts on desktop: `Space` = Play/Stop of the last-used group, `1` to `5` = the game button with that number, `→` / `←` = next/previous track of the last-used group. The last-used group is the one whose button, Previous or Next was used last. It is saved in `settings.activePlaylistId`. |
 | G-9 | The Screen Wake Lock API keeps the screen on while the Game screen is visible. It is re-acquired on `visibilitychange`, and silently skipped where unsupported. |
+| G-10 | **Buttons:** there are five game buttons, numbered 1 to 5. Each one can hold one playlist, and a playlist has at most one button (P-11). Buttons without a playlist are not shown, and the others keep the order of their numbers. |
+| G-11 | When no button has a playlist, the Game screen shows a message and a button that opens the Playlists screen. A group whose playlist has no songs shows "No songs", and tapping its button shows an error toast. |
+| G-12 | On wide screens, the groups are laid out in a grid of up to three columns. |
 
 #### 4.2.1 Play/Stop logic
 
-For the current track, the app keeps three values:
+Each playlist has its own game state, so every button keeps its place. For its current track, the app keeps three values:
 - `positionMs`: where playback was paused.
 - `playedMs`: the **cumulative** time the track has actually played since it became the current track. It is measured locally, from each successful play request until Stop or a track change.
 - `stoppedAt`: when Stop was last pressed.
@@ -163,21 +166,22 @@ For the current track, the app keeps three values:
 | R-2 | **Play after a Stop** advances to the next track and starts it at its `startMs` if **at least one** of these is true: (a) `playedMs ≥` the played threshold (20 s by default), meaning the current track has already played that long in total; (b) `now − stoppedAt >` the idle window (60 s by default), meaning that much time has passed since Stop. Both values are user settings (S-8). |
 | R-3 | Otherwise, **Play resumes** the current track at `positionMs` (at least 1 s before its end, P-10), like a pause. The app resumes by sending the track URI again with `position_ms`, never with a bare resume, so it cannot resume something else. |
 | R-4 | Whenever the current track changes, `playedMs` resets to 0 and `positionMs` is set to the new track's `startMs`. |
-| R-5 | **End of track:** when the current track reaches its end while playing (its marked end, P-10, or the end of the song), the app immediately plays the next track at that track's `startMs`: the next one in the playlist, or in the shuffled order (§4.2.2). Playback continues until Stop is pressed. |
+| R-5 | **End of track:** when the current track reaches its end while playing (its marked end, P-10, or the end of the song), the app immediately plays the next track at that track's `startMs`: the prepared track (R-15) if there is one, otherwise the next one in the playlist or in the shuffled order (§4.2.2). Playback continues until Stop is pressed. |
 | R-6 | In playlist order, the pointer wraps from the last track back to the first. In shuffle mode, R-12 applies. |
-| R-7 | **Explicit selection** (Previous, Next, or tapping a track): while Stopped, it only selects the track, and the next Play starts it at its `startMs`, bypassing R-2 and R-3. While Playing, the selected track starts immediately at its `startMs`. |
+| R-7 | **Explicit selection** (Previous and Next of a group): while the group is Stopped, it selects the track before or after the one its next Play would start. The next Play then starts the selected track at its `startMs`, bypassing R-2 and R-3. While the group is Playing, it moves the track that follows ("Then") one step back or forward, and the current track keeps playing (R-15). |
 | R-8 | The defaults of the two thresholds are constants in `app.js`: `ADVANCE_AFTER_PLAYED_MS = 20000` and `ADVANCE_AFTER_IDLE_MS = 60000`. A missing, invalid or out-of-range stored value falls back to its default. |
-| R-9 | While Stopped, the Game screen always shows what the next Play will do: "Resume — {track} at m:ss" or "Next — {track}". When the idle window expires, the label updates by itself. |
-| R-10 | The game state (`currentIndex`, `positionMs`, `playedMs`, `stoppedAt`, and the shuffle passes of R-14) is saved, so a page reload keeps the user's place. Previews in the playlist editor never change the game state. Changing the active playlist resets the game state. |
+| R-9 | While Stopped, each group always shows what its next Play will do: "Resumes at m:ss", "Next" or "Starts at m:ss", above the track's title. When the idle window expires, the label updates by itself. |
+| R-10 | The game state of each playlist (`currentIndex`, `positionMs`, `playedMs`, `stoppedAt`, the shuffle passes of R-14 and the prepared track of R-15) is saved, so a page reload keeps the user's place in every playlist. After a reload, a track that is still playing is picked up for the last-used group (G-8). Previews in the playlist editor never change the game state. Deleting a playlist deletes its game state. |
+| R-15 | **Prepared track:** a track chosen with Previous or Next while the group is Playing is the prepared track. It plays when the current track ends (R-5), or on the next Play after a Stop, at its `startMs` and bypassing R-2 and R-3. It is then cleared. It is also cleared when it is removed from the playlist. While the group is Stopped, the prepared track is the one the next Play starts, so Previous and Next start from it (R-7). |
 
 #### 4.2.2 Shuffle
 
 | ID | Rule |
 |---|---|
-| R-11 | **Shuffle** (S-9, on by default) plays the songs in a random order. That order is used by automatic continuation (R-5), by the next track chosen in R-2, and by Previous and Next (R-7). |
+| R-11 | **Shuffle** (S-9, on by default) plays the songs of each playlist in a random order. That order is used by automatic continuation (R-5), by the next track chosen in R-2, and by Previous and Next (R-7). |
 | R-12 | A **pass** plays every song of the playlist once. When a pass ends, a new random order starts, and its first song is never the one that just ended (when the playlist has more than one song). Previous on the first song of a pass goes back to the last song of the previous pass. The app keeps only one previous pass: beyond it, Previous wraps to the end of the current pass. |
-| R-13 | The list on the Game screen shows the current pass in play order, numbered by play position. Tapping a song selects it (R-7), and play then continues in the shuffled order from that song. |
-| R-14 | The game state stores three passes of track IDs: the previous one, the current one and the next one. A reload therefore keeps the order (R-10). A new game (a new active playlist, or no saved order) starts on a random song. Turning shuffle on keeps the current song and shuffles the others after it. Turning it off returns to the playlist order from the current song. A song added to the active playlist is inserted at a random position later in the current pass and in the next pass, and a removed song is dropped from them. |
+| R-13 | After Previous or Next (R-7, R-15), play continues in the shuffled order from the selected or prepared song. |
+| R-14 | The game state of each playlist stores three passes of track IDs: the previous one, the current one and the next one. A reload therefore keeps the order (R-10). A new game (a playlist with no saved order) starts on a random song. Turning shuffle on keeps the current song and shuffles the others after it. Turning it off returns to the playlist order from the current song. A song added to the active playlist is inserted at a random position later in the current pass and in the next pass, and a removed song is dropped from them. |
 
 ### 4.3 Playlist management
 
@@ -188,10 +192,11 @@ For the current track, the app keeps three values:
 | P-3 | When a track is added, its metadata is stored with it: `id`, `uri`, `name`, `artists`, `imageUrl` and `durationMs`. The app never needs to re-fetch it. |
 | P-4 | Each track has a start offset (`startMs`), shown as `m:ss`. It can be set in two ways: (a) typing `m:ss` or seconds in the Start field; (b) **Mark start**: while the track is previewing, this reads `progress_ms` from `GET /v1/me/player` and saves it as the start. When the start is after 0:00, a x button resets it to 0:00. |
 | P-5 | **Preview** plays the track from its `startMs` and stops by itself at its end (P-10). A Stop control is available. Preview is unavailable while game music plays, and it stops when the user leaves the editor. |
-| P-6 | Tracks can be reordered (up/down buttons; drag-and-drop is optional) and removed. The track that is playing in the game cannot be removed, and the active playlist cannot be deleted while its music plays. |
+| P-6 | Tracks can be reordered (up/down buttons; drag-and-drop is optional) and removed. The track that is playing in the game cannot be removed, and a playlist cannot be deleted while its music plays. |
 | P-7 | Validation: `0 ≤ startMs ≤ durationMs − 1 s`. Out-of-range values are clamped and a warning is shown. A start moved to less than 1 s before the marked end removes that end, with a warning. |
 | P-8 | Every change is saved immediately (autosave). There is no Save button. |
 | P-10 | Each track can have a marked end (`endMs`), where play stops and moves on to the next track (R-5). It is optional: `null` means the end of the song. It can be set by typing `m:ss` or seconds in the End field (empty or the song's length clears it), with **Mark end** while previewing, or cleared with a × button. It must be at least 1 s after the start, otherwise it is refused with a warning. The Game list and the editor show "start → end" when an end is marked, and the progress ring and the time shown go up to that end. Changing the end of the track that is playing applies at once. |
+| P-11 | **Game button:** the editor has a "Game button" picker with None and 1 to 5 (G-10). Under each number it shows the playlist that holds that button, or "free". Picking a button that another playlist holds takes it from that playlist. While music plays, the playlist that plays can't change its button or lose it to another playlist. The Playlists screen shows a "Button N" badge next to each playlist that has one. Duplicated and imported playlists have no button. Deleting a playlist frees its button. The first playlist created while no button holds a playlist gets button 1. |
 | P-9 | **Import a Spotify playlist** into the playlist being edited. The picker lists only the user's playlists that they own or collaborate on. The songs are added at the end, in the Spotify order, with `startMs = 0`. Songs already in the playlist (same track ID) and repeats inside the Spotify playlist are skipped, and so are local files and podcast episodes. A message then reports how many songs were added, skipped as duplicates, and unavailable. |
 
 ### 4.4 Export and import
@@ -215,7 +220,7 @@ For the current track, the app keeps three values:
 | S-6 | An About section with the app version and a reminder that the app is for personal, non-commercial use. |
 | S-7 | Theme selector: Auto (default, follows the device), Light, Dark. The choice is saved in `settings.theme` and applied immediately, without a reload (see §7). |
 | S-8 | "Next song" section with the two R-2 thresholds: the played threshold (1 s to 5:00, default 0:20) and the idle window (5 s to 10:00, default 1:00). Each one is set by typing `m:ss` or seconds, or with −5 s / +5 s buttons. Values are rounded to the second, and out-of-range values are clamped with a warning. They are saved in `settings.advanceAfterPlayedMs` and `settings.advanceAfterIdleMs` and apply to the next Play. A "Restore defaults" button sets both back to `null`, which means the default. |
-| S-9 | Play order selector in the "Next song" section: Shuffle (default) or Playlist order (§4.2.2). The choice is saved in `settings.shuffle` and applies immediately, also during a game. |
+| S-9 | Play order selector in the "Next song" section: Shuffle (default) or Playlist order (§4.2.2). The choice is saved in `settings.shuffle` and applies immediately to every playlist, also during a game. |
 
 ### 4.6 Internationalisation (i18n)
 
@@ -252,8 +257,8 @@ All keys are prefixed with `hockeydj.`. Each value is JSON. Only `storage.js` re
 
 | Key | Content |
 |---|---|
-| `hockeydj.settings` | `{ "language": "en" \| "fr" \| null, "theme": "light" \| "dark" \| null, "clientId": "…", "deviceId": "…" \| "browser", "activePlaylistId": "…", "advanceAfterPlayedMs": 20000 \| null, "advanceAfterIdleMs": 60000 \| null, "shuffle": true \| false }` (`null` = default, S-8; `shuffle` defaults to `true`, S-9) |
-| `hockeydj.game` | `{ "currentIndex": 0, "positionMs": 45000, "playedMs": 12000, "stoppedAt": "2026-10-18T19:30:00.000Z" \| null, "shuffle": { "past": ["trackId", …] \| null, "order": ["trackId", …], "upcoming": ["trackId", …] } \| null }` (see R-10 and R-14; `shuffle` is `null` in playlist order) |
+| `hockeydj.settings` | `{ "language": "en" \| "fr" \| null, "theme": "light" \| "dark" \| null, "clientId": "…", "deviceId": "…" \| "browser", "activePlaylistId": "…", "buttons": ["playlistId" \| null, …], "advanceAfterPlayedMs": 20000 \| null, "advanceAfterIdleMs": 60000 \| null, "shuffle": true \| false }` (`null` = default, S-8; `shuffle` defaults to `true`, S-9; `activePlaylistId` is the last-used group, G-8; `buttons` has five entries, index 0 = button 1, G-10) |
+| `hockeydj.game` | `{ "playlists": { "playlistId": GameState, … } }`. A GameState is `{ "currentIndex": 0, "positionMs": 45000, "playedMs": 12000, "stoppedAt": "2026-10-18T19:30:00.000Z" \| null, "shuffle": { "past": ["trackId", …] \| null, "order": ["trackId", …], "upcoming": ["trackId", …] } \| null, "prepared": { "trackId": "…", "shuffle": { … } \| null } \| null }` (see R-10, R-14 and R-15; `shuffle` is `null` in playlist order) |
 | `hockeydj.auth` | `{ "accessToken": "…", "refreshToken": "…", "expiresAt": 1760000000000, "scopes": ["…"] }` |
 | `hockeydj.playlists` | `{ "schemaVersion": 2, "playlists": [ Playlist, … ] }` |
 | `hockeydj.pkce` | `{ "verifier": "…", "state": "…" }`. Temporary: exists only during the login redirect. |
@@ -299,6 +304,7 @@ IDs are generated with `crypto.randomUUID()`.
 Any change to the stored format increments `schemaVersion` and adds a migration function in `storage.js`. Migrations run on load.
 
 - **Version 2:** adds `endMs` to each track (P-10). Stored version 1 playlists get `endMs: null`. Version 1 export files are still accepted by import, and their tracks get no end.
+- **Game state per playlist (spec 1.2):** `hockeydj.game` and `settings.buttons` are not part of export files, so `schemaVersion` is unchanged. On load, `storage.js` turns an old single game state into the entry of `activePlaylistId`, and settings saved without `buttons` give button 1 to `activePlaylistId`.
 
 ## 6. Architecture and files
 
@@ -321,7 +327,8 @@ All files are at the repository root.
 
 ## 7. UX and visual design
 
-- Mobile-first. Touch targets are at least 48 × 48 px. The Play/Stop button is the visual priority.
+- Mobile-first. Touch targets are at least 48 × 48 px. The game buttons are the visual priority.
+- **Game screen layout:** the groups (G-4) are stacked in one column on narrow screens, and their buttons shrink so that every group fits in the height. A Chrome split view about 220 px wide is a target. On wide screens they form a grid of up to three columns (G-12).
 - Navigation uses a persistent bar for Game, Playlists and Settings: at the bottom on narrow screens, at the top or side on wide screens.
 - **Theme:**
   - *Auto* (`settings.theme = null`) follows the device's light or dark setting through `prefers-color-scheme`, and switches live when the device changes.
@@ -332,15 +339,15 @@ All files are at the repository root.
 - Content respects safe-area insets on notched phones.
 - Accessibility:
   - semantic buttons with `aria-label`;
-  - `aria-pressed` on the Play/Stop button;
+  - `aria-pressed` on the game buttons;
   - an `aria-live` region for status and toasts;
   - WCAG AA contrast.
 - Times are displayed as `m:ss` in both languages.
 - **Visual identity:**
   - The palette comes from the rink: ice, boards, blue line, goal red and crease blue.
-  - The Play/Stop button is drawn as a face-off circle: blue when ready, goal-light red while music plays. A ring around it shows the position in the song.
+  - Each game button is drawn as a face-off circle: blue when ready, goal-light red while music plays. A ring around it shows the position in the song.
 - **Typography:** only fonts already on the device are used, so nothing is downloaded (NF-8).
-  - A condensed display face (DIN Condensed or DIN Alternate on Apple devices, Bahnschrift on Windows, Roboto Condensed on Android) is used for the big button, titles and times.
+  - A condensed display face (DIN Condensed or DIN Alternate on Apple devices, Bahnschrift on Windows, Roboto Condensed on Android) is used for the game buttons, titles and times.
   - The system UI font is used for all other text.
 
 ## 8. Browser support
@@ -368,6 +375,11 @@ All files are at the repository root.
 - Installation (§4.7).
 - Browser player (§3.4, B-1 to B-5).
 
+**Phase 3**
+- Game buttons: up to five playlists on the Game screen, each with its own game state (G-1 to G-12, P-11).
+- Previous and Next prepare the following track while music plays (R-15).
+- Game screen layout for a narrow Chrome split view (NF-5, §7).
+
 ## 10. Known limitations and risks
 
 - **Browser player:** the music stops if the tab is closed, so the tab must stay open during a game. Some browsers ask before playing protected content (DRM), for example Firefox. On Android, playback may stop when the screen locks or the tab goes to the background.
@@ -392,6 +404,7 @@ All files are at the repository root.
 
 | Version | Date | Changes |
 |---|---|---|
+| 1.2 | 2026-10-27 | Added game buttons (G-1 to G-12, P-11): up to five playlists each get their own round button on the Game screen, labelled with the playlist's name, with Previous, Next and the next track in a framed group. Tapping another button switches playlists in one tap. Each playlist keeps its own game state (§4.2.1, R-10, R-14). Previous and Next while playing now prepare the following track instead of starting it (R-7, R-15). The playlist selector, the now-playing card and the song list left the Game screen (R-13). The Game screen fits a narrow Chrome split view (NF-5, §7). §1, §5.1, §5.4 and §9 updated. |
 | 1.1 | 2026-10-20 | Added updates (§4.8, U-1 and U-2): a service worker that revalidates every file on each load, and a banner when a newer version is deployed while the app is open. `APP_VERSION` moved to `version.js`. A-4 and §6 updated. |
 | 1.0 | 2026-10-20 | Version 1.0: Phase 1 and Phase 2 are complete, and the app version is 1.0. No functional change. |
 | 0.18 | 2026-10-20 | A x button resets the start to 0:00, like the one that removes the end (P-4). |
