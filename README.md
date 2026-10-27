@@ -1,23 +1,25 @@
 # Hockey DJ
 
-**One big button to play the right song at every stoppage of play.**
+**Big buttons to play the right song at every stoppage of play.**
 
-Hockey DJ is a lightweight web app for playing music in a hockey arena. Build playlists of Spotify tracks, choose the exact second where each song should start (the chorus, the drop, the hook), then run the game with a single Play/Stop button that works on any phone, tablet or computer.
+Hockey DJ is a lightweight web app for playing music in a hockey arena. Build playlists of Spotify tracks, choose the exact second where each song should start (the chorus, the drop, the hook), then run the game with one Play/Stop button per playlist, on any phone, tablet or computer.
 
 **Live app:** https://north-lab-kev.github.io/hockey-dj/
 
-> **Status:** Phase 1 (MVP) is implemented and in testing. See [`SPEC.md`](SPEC.md) for the full specification.
+> **Status:** version 1.1. See [`SPEC.md`](SPEC.md) for the full specification.
 
 ---
 
 ## Features
 
-- **Big Play/Stop button** designed for one-handed use during a game.
+- **Up to five game buttons**, one per playlist (warm-up, goal, penalty…), each showing the playlist's name. Tap another button to switch playlists in one tap. Each playlist remembers where it was.
+- **Made for a narrow window:** the Game screen fits one side of a Chrome split view (about 220 px wide), a phone held in one hand, or a full screen.
 - **Custom start and end times:** each song starts and stops at the moments you choose, set by typing them or by tapping **Mark start** and **Mark end** while listening. At the end, the next song starts.
 - **Smart resume:**
   - A song stopped after a few seconds resumes where it left off.
   - A song that already played 20 s, or was stopped more than a minute ago, moves on to the next one. Both times can be changed in Settings.
-  - The screen always shows whether the next Play will be "Resume" or "Next".
+  - Under each button, the screen shows whether the next Play will resume or start the next song.
+- **Previous and Next** under each button choose the next song. While music plays, they prepare the song that follows, without cutting the current one.
 - **Continuous play:** when a song ends, the next song starts at its own start time.
 - **Shuffle, on by default:** every song plays once in a random order, then a new order starts. You can switch to the playlist order in Settings.
 - **Playlists:**
@@ -68,11 +70,11 @@ The app is a set of static files hosted on GitHub Pages. You sign in to Spotify 
 
 ### 3. Build a playlist
 
-Create a playlist, add songs, and set each song's start time, and an end time if you want. Use **Preview** with **Mark start** and **Mark end** to find the best moments.
+Create a playlist, add songs, and set each song's start time, and an end time if you want. Use **Preview** with **Mark start** and **Mark end** to find the best moments. Under **Game button**, pick the button (1 to 5) that plays this playlist.
 
 ### 4. Game time
 
-Open the **Game** screen and tap **PLAY** at each stoppage, then **STOP** when the puck drops. The screen stays awake while the Game screen is open.
+Open the **Game** screen and tap a playlist's button at each stoppage, then tap it again when the puck drops. The screen stays awake while the Game screen is open. On a computer, `1` to `5` tap the buttons, `Space` plays or stops the last one used, and `←` / `→` choose the previous or next song.
 
 **Tips**
 - Turn off **Autoplay** in the Spotify app settings, so Spotify never adds songs of its own.

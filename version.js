@@ -5,4 +5,4 @@
  */
 
 /** The version shown in Settings → About. */
-export const APP_VERSION = '1.0';
+export const APP_VERSION = '1.1';

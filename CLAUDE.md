@@ -85,34 +85,35 @@ There are no automated tests. Before each release, run these scenarios on a phon
 5. **Playlist editing:** search with Load more, every pasted-link format, reorder, remove. Changes survive a reload. (P-1 to P-8)
    - Import a Spotify playlist you own, then import it again: nothing is added twice. Check that followed playlists are not offered, and that local files are skipped. (P-2, P-9)
 6. **Start and end:** set each by typing, and with Mark start and Mark end during a preview. Try out-of-range values, an end before the start, a start moved past the end, and clearing the end. The preview stops at the end, and in a game the next track starts there. Import a version 1 export file. (P-4, P-5, P-7, P-10, §5.4)
-7. **Play/Stop:** test each branch of R-2 and R-3.
+7. **Play/Stop:** test each branch of R-2 and R-3 on one group.
    - Stop below both thresholds, then Play: the track resumes.
    - Stop after reaching the played threshold, then Play: the next track starts.
    - Stop below the played threshold, wait past the idle window, then Play: the next track starts.
    - The label follows R-9, and taps during a pending request are ignored. (R-1 to R-9, G-3)
    - Change both thresholds in Settings (typing, nudges, out-of-range values, Restore defaults), reload, and repeat the branches above with the new values. (S-8)
 8. **Continuation:** let a track end by itself, and pause from the Spotify app. (R-5, §3.4)
-9. **Explicit selection:** use Previous, Next and tap-to-select, both while Stopped and while Playing. (R-7)
-   - Repeat with shuffle on: go past the end of a pass and back with Previous, check that the "Then" card and the list match what plays, reload, then add and remove songs. Turn shuffle off and on during a game. (R-11 to R-14, S-9)
-10. **Reload mid-game:** reload the page during a game; the app keeps its place. (R-10)
-11. **Wake lock and keyboard:** check that the screen stays on and that the keyboard shortcuts work. (G-8, G-9)
-12. **Export, import and reset:** the exported file must contain no tokens. (E-1 to E-4, S-5)
-13. **Layouts:** portrait phone, landscape tablet and desktop. (NF-5, §7)
-14. **Theme:** on Auto, switch the device between light and dark while the app is open; the app follows live. Force Light, then Dark, and reload: the choice is kept, with no flash of the other theme. (S-7, §7)
-15. **Browsers:** every browser listed in SPEC §8.
-16. **Installation:** install from Chrome or Edge on desktop and from Add to Home Screen on Android and iOS. Check the name and icon, that it opens full screen, and that connecting to Spotify works inside the installed app. (A-1 to A-4)
-17. **Updates:** deploy a change with a new `APP_VERSION`. A normal reload shows it, without clearing the cache. An app left open shows the banner when it comes back to the foreground, and Reload loads the new version. (U-1, U-2)
+9. **Previous and Next:** while Stopped, they change the track the next Play starts. While Playing, the current track keeps playing and only "Then" changes; that track plays at the end of the current one. Prepare a track, Stop, then Play before the thresholds: the prepared track starts. (R-7, R-15)
+   - Repeat with shuffle on: go past the end of a pass and back with Previous, check that "Then" matches what plays, reload, then add and remove songs. Turn shuffle off and on during a game. (R-11 to R-14, S-9)
+10. **Game buttons:** give 1, 3 and 5 playlists a button from the editor, including a button another playlist holds, and check the badges in Playlists. Switch between groups while music plays: one tap, no silence, and the group you left resumes or moves on by R-2. Make the switch fail (for example, close the Spotify app): the first playlist keeps playing. Try to change the button of the playlist that plays, delete a playlist that has a button, and use the keys `1` to `5`. (G-1 to G-12, P-11)
+11. **Reload mid-game:** reload the page during a game; the app keeps its place in every playlist. (R-10)
+12. **Wake lock and keyboard:** check that the screen stays on and that the keyboard shortcuts work. (G-8, G-9)
+13. **Export, import and reset:** the exported file must contain no tokens. (E-1 to E-4, S-5)
+14. **Layouts:** portrait phone, landscape tablet and desktop, and Chrome split view with the app on a side about 220 px wide: with 1 to 5 buttons, the Game screen fits without scrolling. (NF-5, G-1, G-12, §7)
+15. **Theme:** on Auto, switch the device between light and dark while the app is open; the app follows live. Force Light, then Dark, and reload: the choice is kept, with no flash of the other theme. (S-7, §7)
+16. **Browsers:** every browser listed in SPEC §8.
+17. **Installation:** install from Chrome or Edge on desktop and from Add to Home Screen on Android and iOS. Check the name and icon, that it opens full screen, and that connecting to Spotify works inside the installed app. (A-1 to A-4)
+18. **Updates:** deploy a change with a new `APP_VERSION`. A normal reload shows it, without clearing the cache. An app left open shows the banner when it comes back to the foreground, and Reload loads the new version. (U-1, U-2)
 
 ## Current status
 
-Version 1.0, deployed on GitHub Pages and tested by the owner with the real Spotify API. No questions are awaiting an answer.
+Version 1.1 (spec 1.2) is built locally: game buttons and the split-view Game screen. It was checked in the built-in browser with a simulated Spotify API, but not yet with the real Spotify API, and it is not deployed. No questions are awaiting an answer.
 
 **Features**
 - Setup and Spotify connection with PKCE (§3.2, §4.1).
 - Playback devices, including the browser player: the default on desktop, experimental on Android (§3.4, B-1 to B-5).
-- Game screen: Play/Stop with resume or advance, automatic continuation, Previous and Next, wake lock and keyboard shortcuts (§4.2, §4.2.1).
+- Game screen: up to five game buttons, one per playlist, with Play/Stop, resume or advance per playlist, switching in one tap, automatic continuation, Previous and Next that prepare the following track, wake lock and keyboard shortcuts (§4.2, §4.2.1). Fits a narrow Chrome split view.
 - Shuffle, on by default (§4.2.2).
-- Playlists: search, paste a link, import a Spotify playlist without duplicates, start and end of each song with Mark start and Mark end, preview, reorder (§4.3).
+- Playlists: search, paste a link, import a Spotify playlist without duplicates, start and end of each song with Mark start and Mark end, preview, reorder, game button (§4.3).
 - Export, import and reset (§4.4, S-5).
 - Settings: language, theme, Spotify connection, device, play order and the two R-2 thresholds (§4.5).
 - English and French (§4.6), light and dark themes (§7).
