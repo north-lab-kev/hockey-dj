@@ -15,6 +15,7 @@ const KEY_AUTH = 'auth';
 const KEY_PLAYLISTS = 'playlists';
 const KEY_GAME = 'game';
 const KEY_PKCE = 'pkce';
+const KEY_TRACK_LINKS = 'trackLinks';
 
 const MAX_NAME_LENGTH = 80;
 const MAX_TEXT_LENGTH = 300;
@@ -187,6 +188,29 @@ export function getGames() {
 /** Saves the game state of every playlist. */
 export function setGames(games) {
   write(KEY_GAME, { playlists: games });
+}
+
+/* ---------- Track links (SPEC §3.4) ---------- */
+
+/** Returns the learned links, `{ requestedTrackId: playedTrackId }`, keeping only valid IDs. */
+export function getTrackLinks() {
+  const stored = read(KEY_TRACK_LINKS);
+  const links = {};
+  if (!isObject(stored)) return links;
+  for (const [requested, played] of Object.entries(stored)) {
+    if (TRACK_ID_PATTERN.test(requested) && typeof played === 'string' && TRACK_ID_PATTERN.test(played)) links[requested] = played;
+  }
+  return links;
+}
+
+/** Saves that Spotify plays `playedId` when asked for `requestedId`, and returns all links. */
+export function setTrackLink(requestedId, playedId) {
+  const links = getTrackLinks();
+  if (TRACK_ID_PATTERN.test(requestedId) && TRACK_ID_PATTERN.test(playedId)) {
+    links[requestedId] = playedId;
+    write(KEY_TRACK_LINKS, links);
+  }
+  return links;
 }
 
 /* ---------- Playlists ---------- */

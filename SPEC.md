@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Version** | 1.4 |
+| **Version** | 1.5 |
 | **Last updated** | 2026-10-27 |
 | **Live URL** | https://north-lab-kev.github.io/hockey-dj/ |
 
@@ -111,6 +111,7 @@ All endpoints below are on Spotify's "Endpoints still available" list, checked o
   | B-5 | Errors (the SDK can't load, protected content is unavailable, the account isn't Premium, a permission is missing) are shown on the "This browser" entry and when Play is pressed, and the device picker opens. A playback error shows a toast. |
 - **Device selection:** the selected device ID is saved. If that device is missing or inactive, the app activates it with Transfer Playback before playing.
 - **Sync:** while the state is Playing and the page is visible, the app polls `GET /v1/me/player` every 5 s. Polling keeps the progress up to date and detects external changes.
+  - **Same track:** Spotify sometimes plays another copy of the same recording, with another ID, when the requested one isn't playable in the user's country (track relinking). A poll shows our track when the item's ID is the one the app asked for, or the one linked to it in `hockeydj.trackLinks` (§5.1). In the first 12 s after a start, a playing item with another ID whose progress is within 2.5 s of the app's own progress is that copy: the app saves the link and keeps playing, so the song is never skipped, and it is recognized right away the next time. Tracks are only ever compared by ID, never by name.
   - **End-of-track handoff:** from the latest known progress, the app schedules the next track to start about 1 s before the current one ends (rule R-5 in §4.2.1). This avoids silence and keeps Spotify Autoplay from taking over.
   - **Fallback:** if a poll shows that playback stopped at (or within a few seconds of) the end of the track, or that a track other than ours is playing (for example, Spotify Autoplay), the app immediately starts the next track from its own playlist.
   - If a poll shows that playback was paused mid-track from the Spotify app, the app switches to Stopped exactly as if Stop had been pressed (R-1).
@@ -261,6 +262,7 @@ All keys are prefixed with `hockeydj.`. Each value is JSON. Only `storage.js` re
 | `hockeydj.game` | `{ "playlists": { "playlistId": GameState, … } }`. A GameState is `{ "currentIndex": 0, "positionMs": 45000, "playedMs": 12000, "stoppedAt": "2026-10-18T19:30:00.000Z" \| null, "shuffle": { "past": ["trackId", …] \| null, "order": ["trackId", …], "upcoming": ["trackId", …] } \| null, "prepared": { "trackId": "…", "shuffle": { … } \| null } \| null }` (see R-10, R-14 and R-15; `shuffle` is `null` in playlist order) |
 | `hockeydj.auth` | `{ "accessToken": "…", "refreshToken": "…", "expiresAt": 1760000000000, "scopes": ["…"] }` |
 | `hockeydj.playlists` | `{ "schemaVersion": 2, "playlists": [ Playlist, … ] }` |
+| `hockeydj.trackLinks` | `{ "requestedTrackId": "playedTrackId", … }`: the copy that Spotify plays for a requested track (§3.4). Learned during play, never exported. |
 | `hockeydj.pkce` | `{ "verifier": "…", "state": "…" }`. Temporary: exists only during the login redirect. |
 
 ### 5.2 Playlist object
@@ -316,7 +318,7 @@ All files are at the repository root.
 | `style.css` | All styles. Mobile-first, CSS custom properties, light and dark themes. |
 | `app.js` | Bootstrap, OAuth callback handling, view routing (Setup / Game / Playlists / Settings) and app state. |
 | `spotify.js` | **The only module that talks to Spotify:** PKCE auth, token refresh, every Web API call with error mapping, and the Web Playback SDK player (§3.4). |
-| `storage.js` | **The only module that touches localStorage:** settings, auth, playlists, migrations, export and import. |
+| `storage.js` | **The only module that touches localStorage:** settings, auth, playlists, track links, migrations, export and import. |
 | `i18n.js` | Dictionaries (`en`, `fr`), language detection, `t()` and DOM translation helpers. |
 | `ui.js` | Rendering of views and components, toasts and dialogs. |
 | `manifest.json`, `icon.svg`, `icon-192.png`, `icon-512.png`, `icon-maskable-512.png`, `apple-touch-icon.png` | Installation (§4.7). |
@@ -404,6 +406,7 @@ All files are at the repository root.
 
 | Version | Date | Changes |
 |---|---|---|
+| 1.5 | 2026-10-27 | Fixed songs that changed a few seconds after they started: when Spotify plays another copy of the requested track (track relinking), the app recognizes it by its progress, saves the link between the two IDs in `hockeydj.trackLinks` and keeps playing (§3.4, §5.1, §6). |
 | 1.4 | 2026-10-27 | Game buttons are limited to four (G-8, G-10, P-11, §5.1). In a window narrower than 300 px, Previous and Next move under the two tracks of each group (G-4). |
 | 1.3 | 2026-10-27 | Each group now always shows two tracks: the one that plays (or that Play will start) and the one that follows (G-4). |
 | 1.2 | 2026-10-27 | Added game buttons (G-1 to G-12, P-11): up to five playlists each get their own round button on the Game screen, labelled with the playlist's name, with Previous, Next and the next track in a framed group. Tapping another button switches playlists in one tap. Each playlist keeps its own game state (§4.2.1, R-10, R-14). Previous and Next while playing now prepare the following track instead of starting it (R-7, R-15). The playlist selector, the now-playing card and the song list left the Game screen (R-13). The Game screen fits a narrow Chrome split view (NF-5, §7). §1, §5.1, §5.4 and §9 updated. |

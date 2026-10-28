@@ -91,7 +91,7 @@ There are no automated tests. Before each release, run these scenarios on a phon
    - Stop below the played threshold, wait past the idle window, then Play: the next track starts.
    - The label follows R-9, and taps during a pending request are ignored. (R-1 to R-9, G-3)
    - Change both thresholds in Settings (typing, nudges, out-of-range values, Restore defaults), reload, and repeat the branches above with the new values. (S-8)
-8. **Continuation:** let a track end by itself, and pause from the Spotify app. (R-5, §3.4)
+8. **Continuation:** let a track end by itself, and pause from the Spotify app. Play a song that Spotify relinks (it plays another copy with another ID, for example Seven Nation Army `1jNOi6m3Hn8nLEeHCp5Msr` or Blah Blah Blah `65lC7Ey8QaVLvItAMF6Ap8` in Canada): it keeps playing past the first poll, `hockeydj.trackLinks` gets the link, and a reload mid-song picks it up. (R-5, §3.4)
 9. **Previous and Next:** while Stopped, they change the track the next Play starts. While Playing, the current track keeps playing and only "Then" changes; that track plays at the end of the current one. Prepare a track, Stop, then Play before the thresholds: the prepared track starts. (R-7, R-15)
    - Repeat with shuffle on: go past the end of a pass and back with Previous, check that "Then" matches what plays, reload, then add and remove songs. Turn shuffle off and on during a game. (R-11 to R-14, S-9)
 10. **Game buttons:** give 1, 3 and 4 playlists a button from the editor, including a button another playlist holds, and check the badges in Playlists. Switch between groups while music plays: one tap, no silence, and the group you left resumes or moves on by R-2. Make the switch fail (for example, close the Spotify app): the first playlist keeps playing. Try to change the button of the playlist that plays, delete a playlist that has a button, and use the keys `1` to `4`. (G-1 to G-12, P-11)
@@ -106,7 +106,7 @@ There are no automated tests. Before each release, run these scenarios on a phon
 
 ## Current status
 
-Version 1.1 (spec 1.2) is built locally: game buttons and the split-view Game screen. It was checked in the built-in browser with a simulated Spotify API, but not yet with the real Spotify API, and it is not deployed. No questions are awaiting an answer.
+Version 1.1 (spec 1.4) is deployed: game buttons and the split-view Game screen. Version 1.2 (spec 1.5) is built locally, not committed: it fixes songs that Spotify relinks, which used to change after about 5 s (§3.4). It still waits for the owner's check with the real Spotify API. No questions are awaiting an answer.
 
 **Features**
 - Setup and Spotify connection with PKCE (§3.2, §4.1).

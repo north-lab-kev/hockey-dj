@@ -22,6 +22,8 @@ const ADVANCE_STEP_MS = 1_000;
 const POLL_INTERVAL_MS = 5_000; // SPEC §3.4
 const HANDOFF_LEAD_MS = 1_000; // R-5
 const END_TOLERANCE_MS = 3_000; // SPEC §3.4 fallback
+const LINK_WINDOW_MS = 12_000; // SPEC §3.4: a track link is learned only this soon after a start
+const LINK_TOLERANCE_MS = 2_500; // SPEC §3.4: how closely Spotify's progress must follow ours
 const POLL_GRACE_MS = 2_500;
 const TICK_MS = 250;
 const SEARCH_DEBOUNCE_MS = 350;
@@ -68,6 +70,7 @@ const state = {
   settings: store.getSettings(),
   playlists: store.getPlaylists(),
   games: store.getGames(),
+  trackLinks: store.getTrackLinks(),
   devices: [],
   devicesLoading: false,
   devicesLoaded: false,
@@ -178,6 +181,31 @@ function isPreviewing() {
 function playingPlaylistId() {
   const playback = state.playback;
   return playback.mode === 'game' && (playback.status === 'playing' || playback.busy) ? playback.playlistId : null;
+}
+
+function trackIdOf(uri) {
+  return String(uri || '').split(':').pop();
+}
+
+/**
+ * True when a playback item is the track with this URI, or the copy of it that Spotify
+ * plays instead (track relinking, SPEC §3.4). Only IDs are compared, never names.
+ */
+function isOurTrack(item, uri) {
+  if (!item?.uri) return false;
+  return item.uri === uri || (Boolean(item.id) && item.id === state.trackLinks[trackIdOf(uri)]);
+}
+
+/**
+ * Learns that Spotify plays another copy of our track (SPEC §3.4): soon after a start, a
+ * playing item with another ID whose progress follows ours is that copy. Returns true when learned.
+ */
+function learnTrackLink(playback, remote, now) {
+  const soon = now - playback.segmentStartedAt <= LINK_WINDOW_MS;
+  const inStep = Math.abs(remote.progress_ms - estimateProgress(now)) <= LINK_TOLERANCE_MS;
+  if (!soon || !inStep || !remote.item?.id) return false;
+  state.trackLinks = store.setTrackLink(trackIdOf(playback.uri), remote.item.id);
+  return isOurTrack(remote.item, playback.uri);
 }
 
 /** Estimated position of the track that is playing now, in milliseconds. */
@@ -1012,7 +1040,8 @@ async function pollPlayback() {
   if (state.playback !== playback || !isGamePlaying() || playback.busy) return;
 
   const now = Date.now();
-  const sameTrack = remote?.item?.uri === playback.uri;
+  let sameTrack = isOurTrack(remote?.item, playback.uri);
+  if (!sameTrack && remote?.is_playing && learnTrackLink(playback, remote, now)) sameTrack = true;
   if (sameTrack && remote.is_playing) {
     playback.positionMs = remote.progress_ms ?? playback.positionMs;
     playback.syncedAt = now;
@@ -1049,7 +1078,7 @@ async function restorePlayback() {
   const game = gameOf(playlist);
   const index = wrap(game.currentIndex, playlist.tracks.length);
   const track = playlist.tracks[index];
-  if (!remote?.is_playing || remote.item?.uri !== track.uri || state.playback.mode) return;
+  if (!remote?.is_playing || !isOurTrack(remote.item, track.uri) || state.playback.mode) return;
   const now = Date.now();
   const startedFrom = game.positionMs ?? track.startMs;
   saveGame(playlist, {
@@ -1557,7 +1586,7 @@ async function markHere(playlistId, index, which = 'start') {
   let positionMs = estimateProgress();
   try {
     const remote = await spotify.getPlaybackState();
-    if (remote?.item?.uri === playback.uri && Number.isFinite(remote.progress_ms)) {
+    if (isOurTrack(remote?.item, playback.uri) && Number.isFinite(remote.progress_ms)) {
       positionMs = remote.progress_ms;
       playback.positionMs = remote.progress_ms;
       playback.syncedAt = Date.now();
