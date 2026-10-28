@@ -24,6 +24,7 @@ const HANDOFF_LEAD_MS = 1_000; // R-5
 const END_TOLERANCE_MS = 3_000; // SPEC §3.4 fallback
 const LINK_WINDOW_MS = 12_000; // SPEC §3.4: a track link is learned only this soon after a start
 const LINK_TOLERANCE_MS = 2_500; // SPEC §3.4: how closely Spotify's progress must follow ours
+const DISPLAY_HOLD_MS = 2_000; // SPEC §3.4: a smaller step back from a poll never shows on screen
 const POLL_GRACE_MS = 2_500;
 const TICK_MS = 250;
 const SEARCH_DEBOUNCE_MS = 350;
@@ -53,6 +54,7 @@ function idlePlayback() {
     syncedAt: 0,
     segmentStartedAt: 0,
     ignorePollUntil: 0,
+    shownFloorMs: 0,
     previewKey: null,
   };
 }
@@ -213,6 +215,11 @@ function estimateProgress(now = Date.now(), playback = state.playback) {
   if (playback.status !== 'playing' || playback.busy) return playback.positionMs;
   const position = playback.positionMs + (now - playback.syncedAt);
   return playback.durationMs ? Math.min(position, playback.durationMs) : position;
+}
+
+/** The position shown on screen: the estimate, held after a small step back from a poll (SPEC §3.4). */
+function shownProgress(now = Date.now(), playback = state.playback) {
+  return Math.max(estimateProgress(now, playback), playback.shownFloorMs || 0);
 }
 
 function savePlaylists() {
@@ -818,7 +825,7 @@ function describeGroup(playlist, now = Date.now()) {
   const tracks = playlist.tracks;
   const playing = own && playback.status === 'playing';
   const plan = playing
-    ? { index: wrap(playback.index, tracks.length), positionMs: estimateProgress(now), status: 'playing', shuffle: gameOf(playlist).shuffle }
+    ? { index: wrap(playback.index, tracks.length), positionMs: shownProgress(now), status: 'playing', shuffle: gameOf(playlist).shuffle }
     : planPlay(playlist, now);
   const then = playing ? followingTrack(playlist, plan.index) : moveFrom(playlist, plan.index, 1, plan.shuffle);
   return {
@@ -867,7 +874,7 @@ async function pressButton(playlistId) {
 /** Where the game track that is playing stops, and how long it played since its last start (R-1). */
 function stopValues(playback, now) {
   return {
-    positionMs: clamp(estimateProgress(now, playback), 0, Math.max(0, playbackEnd(playback) - MIN_TAIL_MS)),
+    positionMs: clamp(shownProgress(now, playback), 0, Math.max(0, playbackEnd(playback) - MIN_TAIL_MS)),
     segmentMs: Math.max(0, now - playback.segmentStartedAt),
   };
 }
@@ -1043,8 +1050,11 @@ async function pollPlayback() {
   let sameTrack = isOurTrack(remote?.item, playback.uri);
   if (!sameTrack && remote?.is_playing && learnTrackLink(playback, remote, now)) sameTrack = true;
   if (sameTrack && remote.is_playing) {
+    const shown = shownProgress(now);
     playback.positionMs = remote.progress_ms ?? playback.positionMs;
     playback.syncedAt = now;
+    // Spotify's progress often lags ours a little: the time shown waits for it instead of stepping back.
+    playback.shownFloorMs = shown - playback.positionMs < DISPLAY_HOLD_MS ? shown : 0;
     if (remote.item.duration_ms) playback.durationMs = remote.item.duration_ms;
     scheduleHandoff();
     schedulePoll();

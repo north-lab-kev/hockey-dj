@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Version** | 1.5 |
+| **Version** | 1.6 |
 | **Last updated** | 2026-10-27 |
 | **Live URL** | https://north-lab-kev.github.io/hockey-dj/ |
 
@@ -110,7 +110,7 @@ All endpoints below are on Spotify's "Endpoints still available" list, checked o
   | B-4 | Browsers allow sound only after a user gesture, so Play, Previous, Next and tap-to-select while playing, and Preview, unlock the player's audio during the tap. Automatic continuation (R-5) then plays without a tap. |
   | B-5 | Errors (the SDK can't load, protected content is unavailable, the account isn't Premium, a permission is missing) are shown on the "This browser" entry and when Play is pressed, and the device picker opens. A playback error shows a toast. |
 - **Device selection:** the selected device ID is saved. If that device is missing or inactive, the app activates it with Transfer Playback before playing.
-- **Sync:** while the state is Playing and the page is visible, the app polls `GET /v1/me/player` every 5 s. Polling keeps the progress up to date and detects external changes.
+- **Sync:** while the state is Playing and the page is visible, the app polls `GET /v1/me/player` every 5 s. Polling keeps the progress up to date and detects external changes. Spotify's progress often lags a little behind the app's: when a poll moves the progress back by less than 2 s, the time shown doesn't step back, it waits until the progress catches up.
   - **Same track:** Spotify sometimes plays another copy of the same recording, with another ID, when the requested one isn't playable in the user's country (track relinking). A poll shows our track when the item's ID is the one the app asked for, or the one linked to it in `hockeydj.trackLinks` (§5.1). In the first 12 s after a start, a playing item with another ID whose progress is within 2.5 s of the app's own progress is that copy: the app saves the link and keeps playing, so the song is never skipped, and it is recognized right away the next time. Tracks are only ever compared by ID, never by name.
   - **End-of-track handoff:** from the latest known progress, the app schedules the next track to start about 1 s before the current one ends (rule R-5 in §4.2.1). This avoids silence and keeps Spotify Autoplay from taking over.
   - **Fallback:** if a poll shows that playback stopped at (or within a few seconds of) the end of the track, or that a track other than ours is playing (for example, Spotify Autoplay), the app immediately starts the next track from its own playlist.
@@ -406,6 +406,7 @@ All files are at the repository root.
 
 | Version | Date | Changes |
 |---|---|---|
+| 1.6 | 2026-10-27 | The time shown no longer steps back briefly when a poll reports a progress slightly behind the app's (§3.4). |
 | 1.5 | 2026-10-27 | Fixed songs that changed a few seconds after they started: when Spotify plays another copy of the requested track (track relinking), the app recognizes it by its progress, saves the link between the two IDs in `hockeydj.trackLinks` and keeps playing (§3.4, §5.1, §6). |
 | 1.4 | 2026-10-27 | Game buttons are limited to four (G-8, G-10, P-11, §5.1). In a window narrower than 300 px, Previous and Next move under the two tracks of each group (G-4). |
 | 1.3 | 2026-10-27 | Each group now always shows two tracks: the one that plays (or that Play will start) and the one that follows (G-4). |
